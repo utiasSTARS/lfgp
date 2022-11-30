@@ -1,11 +1,14 @@
 import timeit
 import torch
+import numpy as np
 
 import rl_sandbox.constants as c
 
 from rl_sandbox.algorithms.sac.sac import SAC
 from rl_sandbox.algorithms.utils import aug_data
 from rl_sandbox.auxiliary_tasks.auxiliary_tasks import AuxiliaryTask
+
+# from robust_loss_pytorch.general import lossfun as robust_loss
 
 class UpdateSACIntentions(SAC):
     def __init__(self, model, policy_opt, qs_opt, alpha_opt, learn_alpha, buffer, algo_params, aux_tasks=AuxiliaryTask()):
@@ -19,6 +22,8 @@ class UpdateSACIntentions(SAC):
                          aux_tasks=aux_tasks)
         self._num_tasks = algo_params.get(c.NUM_TASKS, 1)
         self._action_dim = algo_params[c.ACTION_DIM]
+        self._prev_bias_val = 0
+        self._magnitude_penalty_multiplier = self.algo_params.get(c.MAGNITUDE_PENALTY_MULTIPLIER, None)
 
     def _compute_qs_loss(self, obss, h_states, acts, rews, dones, next_obss, discounting, lengths):
         batch_size = len(obss)
@@ -87,7 +92,7 @@ class UpdateSACIntentions(SAC):
         with torch.no_grad():
             alpha = self.model.alpha.detach().repeat(batch_size).reshape(task_batch_size, 1)
         pi_loss = (alpha * lprobs - min_q).sum()
-        
+
         return pi_loss
 
     def _compute_alpha_loss(self, obss, h_states, lengths):
@@ -96,7 +101,7 @@ class UpdateSACIntentions(SAC):
         with torch.no_grad():
             _, lprobs = self.model.act_lprob(obss, h_states, lengths=lengths)
             lprobs = lprobs.reshape(task_batch_size, 1)
-        
+
         alpha = self.model.alpha.repeat(batch_size).reshape(task_batch_size, 1)
         alpha_loss = (-alpha * (lprobs + self._target_entropy).detach()).sum()
 
@@ -104,7 +109,8 @@ class UpdateSACIntentions(SAC):
 
 
 class UpdateSACDACIntentions(UpdateSACIntentions):
-    def __init__(self, model, policy_opt, qs_opt, alpha_opt, learn_alpha, buffer, algo_params, aux_tasks=AuxiliaryTask()):
+    def __init__(self, model, policy_opt, qs_opt, alpha_opt, learn_alpha, buffer, algo_params, aux_tasks=AuxiliaryTask(),
+                 expert_buffers=None):
         super().__init__(model=model,
                          policy_opt=policy_opt,
                          qs_opt=qs_opt,
@@ -113,6 +119,9 @@ class UpdateSACDACIntentions(UpdateSACIntentions):
                          buffer=buffer,
                          algo_params=algo_params,
                          aux_tasks=aux_tasks)
+
+        self.expert_buffers = expert_buffers
+        self._expert_buffer_rate = self.algo_params.get(c.EXPERT_BUFFER_MODEL_SAMPLE_RATE, 0.)
 
     def update(self, reward_function, next_obs, next_h_state):
         self.step += 1
@@ -135,9 +144,44 @@ class UpdateSACDACIntentions(UpdateSACIntentions):
 
             for _ in range(self._num_gradient_updates // self._num_prefetch):
                 tic = timeit.default_timer()
+
                 obss, h_states, acts, rews, dones, next_obss, next_h_states, infos, lengths = self.buffer.sample_with_next_obs(
-                    self._batch_size * self._num_prefetch, next_obs, next_h_state)                
-                
+                        self._batch_size * self._num_prefetch, next_obs, next_h_state)
+
+                decay = self.algo_params.get(c.EXPERT_BUFFER_MODEL_SAMPLE_DECAY, 1.0)
+                self._expert_buffer_rate = self._expert_buffer_rate * decay
+
+                if self.algo_params.get(c.EXPERT_BUFFER_MODEL_SHARE_ALL, False) and \
+                        int(self._expert_buffer_rate * self._batch_size * self._num_prefetch) > 0:
+                    assert self.expert_buffers is not None
+                    num_expert_total = int(self._expert_buffer_rate * \
+                        self._batch_size * self._num_prefetch)
+                    num_policy = int(self._batch_size * self._num_prefetch - num_expert_total)
+                    num_per_buffer = int(num_expert_total / len(self.expert_buffers))
+                    num_main = num_expert_total - (len(self.expert_buffers) - 1) * num_per_buffer
+                    amounts = [num_per_buffer] * len(self.expert_buffers)
+                    amounts[self.algo_params['main_intention']] = num_main
+                    inds_to_update = np.cumsum(amounts)
+                    starts = np.concatenate([[0], inds_to_update[:-1]])
+                    ends = inds_to_update
+                    for task_i, (start, end, amount) in enumerate(zip(starts, ends, amounts)):
+                        e_obss, e_h_states, e_acts, e_rews, e_dones, e_next_obss, e_next_h_states, e_infos, e_lengths = \
+                            self.expert_buffers[task_i].sample_with_next_obs(amount, None, None)
+                        obss[start:end] = e_obss
+                        h_states[start:end] = e_h_states
+                        acts[start:end] = e_acts
+
+                        # these might not be the correct reward indices, but they get overwritten anyways so doesn't matter for now
+                        # specifically, if the expert buffer reward dimension is diff from the env, which can happen
+                        # if we're reusing data but removing one of the intentions, these rewards will be wrong
+                        rews[start:end] = e_rews[:, :self.algo_params['num_tasks']]
+                        dones[start:end] = e_dones
+                        next_obss[start:end] = e_next_obss
+                        next_h_states[start:end] = e_next_h_states
+                        for k in infos:
+                            infos[k][start:end] = e_infos[k]
+                        lengths[start:end] = e_lengths
+
                 obss = self.train_preprocessing(obss)
                 next_obss = self.train_preprocessing(next_obss)
 

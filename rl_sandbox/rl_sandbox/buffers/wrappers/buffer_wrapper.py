@@ -20,6 +20,9 @@ class BufferWrapper(Buffer):
     def sample_init_obs(self, batch_size):
         return self.buffer.sample_init_obs(batch_size)
 
+    def sample_trajs(self, batch_size, next_obs, idxes=None, horizon_length=2):
+        return self.buffer.sample_trajs(batch_size, next_obs, idxes, horizon_length)
+
     @property
     def memory_size(self):
         return self.buffer.memory_size
@@ -40,8 +43,8 @@ class BufferWrapper(Buffer):
     def save(self, save_path, **kwargs):
         return self.buffer.save(save_path, **kwargs)
 
-    def load(self, load_path):
-        return self.buffer.load(load_path)
+    def load(self, load_path, load_rng=True):
+        return self.buffer.load(load_path, load_rng=load_rng)
 
     def transfer_data(self, load_path):
         return self.buffer.transfer_data(load_path)

@@ -6,14 +6,14 @@ import rl_sandbox.constants as c
 
 from rl_sandbox.agents.hrl_agents import SACXAgent, SACXPlusHandcraftAgent
 from rl_sandbox.agents.rl_agents import ACAgent
-from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler
+from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler, WeightedRandomScheduler, WeightedRandomSchedulerPlusHandcraft
 from rl_sandbox.envs.utils import make_env
 from rl_sandbox.model_architectures.utils import make_model
 from rl_sandbox.train.train_lfgp_sac import train_lfgp_sac
 
 
 def load_model(seed, config_path, model_path, intention=0, device="cpu", include_env=True, include_disc=True,
-               load_whole_agent=True, model_timestep=0):
+               load_whole_agent=True, model_timestep=0, force_egl=False):
     assert os.path.isfile(model_path)
     assert os.path.isfile(config_path)
 
@@ -42,15 +42,18 @@ def load_model(seed, config_path, model_path, intention=0, device="cpu", include
         if load_whole_agent and config[c.ALGO] in [c.LFGP, "dacx"]:
             config[c.LOAD_MODEL] = model_path
 
-            # fix bug where scheduler temperature was not being saved
-            skw = config[c.SCHEDULER_SETTING][c.TRAIN][c.KWARGS]
-            num_decays = model_timestep / config[c.MAX_EPISODE_LENGTH] * skw[c.MAX_SCHEDULE]
-            temperature = max(skw[c.TEMPERATURE_MIN], skw[c.TEMPERATURE] * skw[c.TEMPERATURE_DECAY] ** num_decays)
-            config[c.SCHEDULER_SETTING][c.TRAIN][c.KWARGS][c.TEMPERATURE] = temperature
+            if config[c.SCHEDULER_SETTING][c.TRAIN][c.MODEL_ARCHITECTURE] != WeightedRandomScheduler \
+                    and config[c.SCHEDULER_SETTING][c.TRAIN][c.MODEL_ARCHITECTURE] != WeightedRandomSchedulerPlusHandcraft:
+                # fix bug where scheduler temperature was not being saved
+                skw = config[c.SCHEDULER_SETTING][c.TRAIN][c.KWARGS]
+                num_decays = model_timestep / config[c.MAX_EPISODE_LENGTH] * skw[c.MAX_SCHEDULE]
+                temperature = max(skw[c.TEMPERATURE_MIN], skw[c.TEMPERATURE] * skw[c.TEMPERATURE_DECAY] ** num_decays)
+                config[c.SCHEDULER_SETTING][c.TRAIN][c.KWARGS][c.TEMPERATURE] = temperature
 
             # set all devices to new device
             config[c.INTENTIONS_SETTING][c.KWARGS][c.DEVICE] = device
             config[c.DISCRIMINATOR_SETTING][c.KWARGS][c.DEVICE] = device
+            config[c.BUFFER_SETTING][c.KWARGS][c.DEVICE] = device
 
             agent = train_lfgp_sac(config, return_agent_only=True, no_expert_buffers=True)
             discriminator = agent.learning_algorithm.update_intentions.discriminator
@@ -103,7 +106,7 @@ def load_model(seed, config_path, model_path, intention=0, device="cpu", include
 
         if hasattr(model, c.OBS_RMS):
             model.obs_rms = saved_model[c.OBS_RMS]
-        
+
         agent = ACAgent(model=model,
                         learning_algorithm=None,
                         preprocess=config[c.EVALUATION_PREPROCESSING])
@@ -112,6 +115,8 @@ def load_model(seed, config_path, model_path, intention=0, device="cpu", include
 
     if include_env:
         env_setting = config[c.ENV_SETTING]
+        if force_egl:
+            env_setting[c.KWARGS]["egl"] = True
         env = make_env(env_setting, seed=seed)
         return_list.append(env)
 

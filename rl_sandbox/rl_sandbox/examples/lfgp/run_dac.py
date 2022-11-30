@@ -27,12 +27,20 @@ parser.add_argument('--exp_name', type=str, default="", help="String correspondi
 parser.add_argument('--main_task', type=str, default="stack_01", help="Main task (for play environment)")
 parser.add_argument('--device', type=str, default="cpu", help="device to use")
 parser.add_argument('--render', action='store_true', default=False, help="Render training")
-parser.add_argument('--max_steps', type=int, default=4000000, help="Number of steps to interact with")
+parser.add_argument('--max_steps', type=int, default=2000000, help="Number of steps to interact with")
 parser.add_argument('--memory_size', type=int, default=4000000, help="Memory size of buffer")
-parser.add_argument('--eval_freq', type=int, default=200000, help="The frequency of evaluating the performance of the current policy")
+parser.add_argument('--eval_freq', type=int, default=100000, help="The frequency of evaluating the performance of the current policy")
 parser.add_argument('--num_evals', type=int, default=50, help="Number of evaluation episodes")
 parser.add_argument('--max_episode_length', type=int, default=360, help="Maximum length of episode.")
 parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
+parser.add_argument('--expbuf_last_sample_prop', type=float, default=0.95,
+    help="Proportion of mini-batch samples that should be final transitions for discriminator training. 0.0 \
+          means regular sampling.")
+parser.add_argument('--expbuf_model_sample_rate', type=float, default=0.1,
+    help="Proportion of mini-batch samples that should be expert samples for q/policy training.")
+parser.add_argument('--expbuf_model_sample_decay', type=float, default=0.99999,
+    help="Decay rate for expbuf_model_sample_rate.")
+
 args = parser.parse_args()
 
 seed = args.seed
@@ -79,7 +87,7 @@ buffer_settings = {
         c.CHECKPOINT_PATH: None,
     },
     c.STORAGE_TYPE: c.RAM,
-    c.STORE_NEXT_OBSERVATION: True,
+    c.BUFFER_TYPE: c.STORE_NEXT_OBSERVATION,
     c.BUFFER_WRAPPERS: [
         {
             c.WRAPPER: TorchBuffer,
@@ -149,11 +157,11 @@ experiment_setting = {
     c.EVALUATION_REWARD_FUNC: eval_reward,
 
     # Exploration
-    c.EXPLORATION_STEPS: 1000,
+    c.EXPLORATION_STEPS: 50000,
     c.EXPLORATION_STRATEGY: UniformContinuousAgent(min_action,
                                                    max_action,
                                                    np.random.RandomState(seed)),
-    
+
     # General
     c.DEVICE: device,
     c.SEED: seed,
@@ -173,7 +181,7 @@ experiment_setting = {
             c.OBS_DIM: obs_dim,
             c.ACTION_DIM: action_dim,
             c.SHARED_LAYERS: VALUE_BASED_LINEAR_LAYERS(in_dim=obs_dim),
-            c.INITIAL_ALPHA: 1.,
+            c.INITIAL_ALPHA: .01,
             c.DEVICE: device,
             c.NORMALIZE_OBS: False,
             c.NORMALIZE_VALUE: False,
@@ -190,18 +198,22 @@ experiment_setting = {
             c.DEVICE: device,
         }
     },
-    
+
     c.OPTIMIZER_SETTING: {
         c.POLICY: {
-            c.OPTIMIZER: torch.optim.Adam,
+            # c.OPTIMIZER: torch.optim.Adam,
+            c.OPTIMIZER: torch.optim.AdamW,  # need this for proper weight decay
             c.KWARGS: {
                 c.LR: 1e-5,
+                c.WEIGHT_DECAY: 0.01,
             },
         },
         c.QS: {
-            c.OPTIMIZER: torch.optim.Adam,
+            # c.OPTIMIZER: torch.optim.Adam,
+            c.OPTIMIZER: torch.optim.AdamW,  # need this for proper weight decay
             c.KWARGS: {
                 c.LR: 3e-4,
+                c.WEIGHT_DECAY: 0.01,
             },
         },
         c.ALPHA: {
@@ -211,9 +223,11 @@ experiment_setting = {
             },
         },
         c.DISCRIMINATOR: {
-            c.OPTIMIZER: torch.optim.Adam,
+            # c.OPTIMIZER: torch.optim.Adam,
+            c.OPTIMIZER: torch.optim.AdamW,  # need this for proper weight decay
             c.KWARGS: {
                 c.LR: 3e-4,
+                c.WEIGHT_DECAY: 0.01,
             },
         },
     },
@@ -225,10 +239,13 @@ experiment_setting = {
     c.EXPERT_BUFFER: args.expert_path,
     c.DISCRIMINATOR_BATCH_SIZE: 256,
     c.GRADIENT_PENALTY_LAMBDA: 10.,
+    c.EXPERT_BUFFER_MODEL_SAMPLE_RATE: args.expbuf_model_sample_rate,
+    c.EXPERT_BUFFER_MODEL_SAMPLE_DECAY: args.expbuf_model_sample_decay,
+    c.DISCRIMINATOR_EXPBUF_LAST_SAMPLE_PROP: args.expbuf_last_sample_prop,
 
     c.ACCUM_NUM_GRAD: 1,
     c.BATCH_SIZE: 256,
-    c.BUFFER_WARMUP: 1000,
+    c.BUFFER_WARMUP: 25000,
     c.GAMMA: 0.99,
     c.LEARN_ALPHA: True,
     c.MAX_GRAD_NORM: 10,
@@ -238,7 +255,7 @@ experiment_setting = {
     c.STEPS_BETWEEN_UPDATE: 1,
     c.TARGET_ENTROPY: -float(action_dim),
     c.TARGET_UPDATE_INTERVAL: 1,
-    c.TAU: 0.005,
+    c.TAU: 0.0001,
     c.UPDATE_NUM: 0,
 
     # Progress Tracking
@@ -254,5 +271,7 @@ experiment_setting = {
     c.MAX_TOTAL_STEPS: max_total_steps,
     c.TRAIN_RENDER: False,
 }
+
+exp_utils.config_check(experiment_setting, args.user_machine)
 
 train_dac_sac(experiment_config=experiment_setting)

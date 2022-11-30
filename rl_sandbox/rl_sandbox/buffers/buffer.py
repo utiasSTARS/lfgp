@@ -45,7 +45,7 @@ class Buffer:
     def save(self, save_path, **kwargs):
         raise NotImplementedError
 
-    def load(self, load_path):
+    def load(self, load_path, load_rng=True):
         raise NotImplementedError
 
     def close(self):

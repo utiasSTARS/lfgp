@@ -32,6 +32,13 @@ def train_dac_sac(experiment_config):
                                      buffer,
                                      experiment_config)
 
+    expert_buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.EXPERT_BUFFER])
+
+    if experiment_config.get(c.EXPERT_BUFFER_MODEL_SAMPLE_RATE, 0.) > 0:
+        e_buffer_arg = expert_buffer
+    else:
+        e_buffer_arg = None
+
     learning_algorithm = SACDAC(model=model,
                                 policy_opt=policy_opt,
                                 qs_opt=qs_opt,
@@ -39,9 +46,9 @@ def train_dac_sac(experiment_config):
                                 learn_alpha=experiment_config[c.LEARN_ALPHA],
                                 buffer=buffer,
                                 algo_params=experiment_config,
-                                aux_tasks=aux_tasks)
+                                aux_tasks=aux_tasks,
+                                expert_buffer=e_buffer_arg)
 
-    expert_buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.EXPERT_BUFFER])
     discriminator = make_model(experiment_config[c.DISCRIMINATOR_SETTING])
     discriminator_opt = make_optimizer(discriminator.parameters(), experiment_config[c.OPTIMIZER_SETTING][c.DISCRIMINATOR])
     dac = DAC(discriminator=discriminator,

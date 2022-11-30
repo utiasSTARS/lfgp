@@ -133,7 +133,7 @@ buffer_settings = {
         c.CHECKPOINT_PATH: None,
     },
     c.STORAGE_TYPE: c.RAM,
-    c.STORE_NEXT_OBSERVATION: True,
+    c.BUFFER_TYPE: c.STORE_NEXT_OBSERVATION,
     c.BUFFER_WRAPPERS: [
         {
             c.WRAPPER: TorchBuffer,

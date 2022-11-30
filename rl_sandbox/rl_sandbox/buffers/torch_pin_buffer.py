@@ -331,7 +331,7 @@ class TorchPinBuffer(Buffer):
                 c.DTYPE: np.float32
             }, f)
 
-    def load(self, load_path):
+    def load(self, load_path, load_rng=True):
         with gzip.open(load_path, "rb") as f:
             data = pickle.load(f)
 

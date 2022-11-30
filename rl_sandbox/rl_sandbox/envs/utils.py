@@ -26,6 +26,9 @@ def make_env(env_config, seed=None):
         else:
             env = getattr(manlearn_envs, env_config[c.ENV_BASE][c.ENV_NAME])(
                 dense_reward=False, n_substeps=5)
+    elif env_config[c.ENV_TYPE] == c.SAWYER:
+        import rl_sandbox.envs.rce_envs as rce_envs
+        env = rce_envs.load_env(env_config[c.ENV_BASE][c.ENV_NAME], gym_env=True)
     else:
         raise NotImplementedError
 

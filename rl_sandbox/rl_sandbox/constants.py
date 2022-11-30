@@ -27,6 +27,7 @@ GRAC = "grac"
 MBPO = "mbpo"
 MULTITASK_BC = "multitask_bc"
 PPO = "ppo"
+RCE = "rce"
 SAC = "sac"
 SACX = "sacx"
 SAC_DIAYN = "sac_diayn"
@@ -79,6 +80,7 @@ ORIGINAL_OBS = "original_obs"
 PIXELS = "pixels"
 PIXELS_ONLY = "pixels_only"
 RENDER = "render"
+SAWYER = "sawyer"
 STATE = "state"
 TASK_KWARGS = "task_kwargs"
 TASK_NAME = "task_name"
@@ -188,6 +190,7 @@ OBS_RMS = "obs_rms"
 ADAM = "adam"
 RMSPROP = "rms_prop"
 SGD = "sgd"
+WEIGHT_DECAY = "weight_decay"
 
 # Prioritized Experience Replay
 PER = "per"
@@ -215,6 +218,7 @@ STATE_DICT = "state_dict"
 ACTIONS = "actions"
 BUFFER = "buffer"
 BUFFER_SETTING = "buffer_setting"
+BUFFER_TYPE = "buffer_type"
 BUFFER_WRAPPERS = "buffer_wrappers"
 BURN_IN_WINDOW = "burn_in_window"
 CHECKPOINT_INDICES = "checkpoint_idxes"
@@ -222,6 +226,7 @@ CHECKPOINT_INTERVAL = "checkpoint_interval"
 CHECKPOINT_PATH = "checkpoint_path"
 CIRCULAR = "circular"
 COUNT = "count"
+DEFAULT = "default"
 DISK_DIR = "disk_dir"
 DONES = "dones"
 DONES_IDXES = "dones_idxes"
@@ -240,6 +245,7 @@ REWARDS = "rewards"
 STORAGE_TYPE = "storage_type"
 STORE_NEXT_OBSERVATION = "store_next_observation"
 SUBDIR_LIMIT = "subdir_limit"
+TRAJECTORY = "trajectory"
 TMP_DIR = "./tmp"
 
 # Replay Buffer Type
@@ -254,11 +260,13 @@ CUM_EPISODE_LENGTHS = "cum_episode_lengths"
 DISCOUNT_FACTOR = "discount_factor"
 DISCOUNTING = "discounting"
 ENABLE_DISCOUNTING = "enable_discounting"
+EPISODE_IDXES = "episode_idxes"
 EPISODE_LENGTHS = "episode_lengths"
 EXPLORATION_STEPS = "exploration_steps"
 EXPLORATION_STRATEGY = "exploration_strategy"
 GAMMA = "gamma"
 MAX_TOTAL_STEPS = "max_total_steps"
+N_STEP = "n_step"
 NUM_EPISODES = "num_episodes"
 NUM_ITERS = "num_iters"
 NUM_STEPS = "num_steps"
@@ -376,12 +384,18 @@ CREATE_ABSORBING_STATE = "create_absorbing_state"
 DISCRIMINATOR_BATCH_SIZE = "discriminator_batch_size"
 DISCRIMINATOR_REWARD = "discriminator_reward"
 DISCRIMINATOR_SAMPLE_TIME = "discriminator_sample_time"
+DISCRIMINATOR_NUM_UPDATES = "discriminator_num_updates"
+DISCRIMINATOR_EXPBUF_LAST_SAMPLE_PROP = "discriminator_expbuf_last_sample_prop"
 EXPERT_BUFFER = "expert_buffer"
 EXPERT_BUFFERS = "expert_buffers"
 EXPERT_SETTING = "expert_setting"
+EXPERT_BUFFER_SUBSAMPLING = "expert_buffer_subsampling"
 GAN_LOSS = "gan_loss"
 GP_LOSS = "gp_loss"
 GRADIENT_PENALTY_LAMBDA = "gradient_penalty_lambda"
+EXPERT_BUFFER_MODEL_SAMPLE_RATE = "expert_buffer_model_sample_rate"
+EXPERT_BUFFER_MODEL_SAMPLE_DECAY = "expert_buffer_model_sample_decay"
+EXPERT_BUFFER_MODEL_SHARE_ALL = "expert_buffer_model_share_all"
 
 # LfGP
 MAIN_TASK = "main_task"
@@ -393,6 +407,7 @@ DISCRIMINATOR_LOSS = "discriminator_loss"
 DISCRIMINATOR_OPTIMIZER = "discriminator_optimizer"
 DISCRIMINATOR_SETTING = "discriminator_setting"
 DISCRIMINATOR_UPDATE_TIME = "discriminator_update_time"
+
 KL_APPROXIMATION_SAMPLES = "kl_approximation_samples"
 PRIOR = "prior"
 TASK = "task"
@@ -471,6 +486,15 @@ Q_LOSS = "q_loss"
 Q_OPTIMIZER = "q_optimizer"
 Q_TABLE = "q_table"
 
+# RCE
+CLASSIFIER = "classifier"
+CLASSIFIER_BATCH_SIZE = "classifier_batch_size"
+CLASSIFIER_OPTIMIZER = "classifier_optimizer"
+CLASSIFIER_UPDATE_TIME = "classifier_update_time"
+CLASSIFIER_SAMPLE_TIME = "classifier_sample_time"
+CLASSIFIER_SETTING = "classifier_setting"
+RCE_LOSS = "rce_loss"
+
 # SAC
 ACTOR_UPDATE_INTERVAL = "actor_update_interval"
 ALPHA = "alpha"
@@ -485,6 +509,9 @@ Q2_LOSS = "q2_loss"
 QS = "qs"
 QS_OPTIMIZER = "qs_optimizer"
 TARGET_ENTROPY = "target_entropy"
+MAGNITUDE_PENALTY_MULTIPLIER = "magnitude_penalty_multiplier"
+MAGNITUDE_MAX = "magnitude_max"
+MAGNITUDE_FOLLOW_AVERAGE = "magnitude_follow_average"
 
 # SAC-X
 AUXILIARY_REWARDS = "auxiliary_rewards"
@@ -516,8 +543,9 @@ TRANSFER_PRETRAIN = "transfer_pretrain"
 TRANSFER_BUFFER_DOWNSAMPLE = "transfer_buffer_downsample"
 TRANSFER_BUFFER_MAX_INDEX = "transfer_buffer_max_index"
 TRANSFER_AUX_IGNORE = "transfer_aux_ignore"
-TASK_RESET_PROBS = "task_reset_probs"
 TASK_CONDITIONAL_PROBS = "task_conditional_probs"
+TASK_RESET_PROBS = "task_reset_probs"
+TASK_SELECT_PROBS = "task_select_probs"
 
 # ========================================================================
 # Training parameters
@@ -659,6 +687,12 @@ DEFAULT_PT_PARAMS = {
     MIN_PRIORITY: 1e-5,
 }
 
+# RCE
+DEFAULT_RCE_PARAMS = {
+    EPS: 1e-5,
+    N_STEP: 1,
+}
+
 # REINFORCE
 DEFAULT_REINFORCE_PARAMS = {
     ACCUM_NUM_GRAD: 1,
@@ -711,10 +745,15 @@ VALID_ALGORITHMS = (PPO,
                     SAC,
                     SACX,)
 
+VALID_BUFFER_TYPE = (DEFAULT,
+                     STORE_NEXT_OBSERVATION,
+                     TRAJECTORY)
+
 VALID_ENV_TYPE = (DM_CONTROL,
                   GYM,
                   GYM_THING,
-                  MANIPULATOR_LEARNING,)
+                  MANIPULATOR_LEARNING,
+                  SAWYER)
 
 VALID_DISCRIMINATOR = (GAUSSIAN,)
 

@@ -34,6 +34,8 @@ class ActorCritic(nn.Module):
     def _extract_features(self, x):
         x = self._flatten(x)
 
+        x = x.to(self.device)  # otherwise breaks with obs rms
+
         obs, extra_features = x[:, :self._obs_dim], x[:, self._obs_dim:]
         if hasattr(self, OBS_RMS):
             obs = self.obs_rms.normalize(obs)
@@ -172,6 +174,13 @@ class SquashedGaussianSoftActorCritic(SoftActorCritic):
         log_prob = self._lprob(dist, action, t_action)
         return t_action, log_prob
 
+    def deterministic_act_lprob(self, x, h, **kwargs):
+        dist, _, _ = self.forward(x, h)
+        action = dist.mean
+        t_action = self._squash_gaussian(action)
+        log_prob = self._lprob(dist, action, t_action)
+        return t_action, log_prob
+
     def compute_action(self, x, h):
         self.eval()
         with torch.no_grad():
@@ -294,4 +303,3 @@ class SquashedGaussianSoftActorCriticPlusHandcraft(SquashedGaussianSoftActorCrit
             t_action, dist, log_prob = self.action_to_action_with_handcraft(dist, action)
         self.train()
         return t_action[0].cpu().numpy(), value[0].cpu().numpy(), h[0].cpu().numpy(), log_prob[0].cpu().numpy(), dist.entropy()[0].cpu().numpy()
-        

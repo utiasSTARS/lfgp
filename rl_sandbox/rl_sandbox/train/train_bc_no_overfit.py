@@ -4,7 +4,7 @@ import pickle
 
 import rl_sandbox.constants as c
 
-from rl_sandbox.algorithms.bc.bc import BC
+from rl_sandbox.algorithms.bc.bc_no_overfit import BC
 from rl_sandbox.auxiliary_tasks.utils import make_auxiliary_tasks
 from rl_sandbox.buffers.utils import make_buffer
 from rl_sandbox.envs.fake_env import FakeEnv
@@ -15,7 +15,7 @@ from rl_sandbox.agents.rl_agents import ACAgent
 from rl_sandbox.transforms.general_transforms import Identity
 from rl_sandbox.utils import make_summary_writer, set_seed
 
-def train_bc(experiment_config):
+def train_bc_no_overfit(experiment_config):
     seed = experiment_config[c.SEED]
     save_path = experiment_config.get(c.SAVE_PATH, None)
     buffer_preprocessing = experiment_config.get(c.BUFFER_PREPROCESSING, Identity())

@@ -12,11 +12,10 @@ class DAC:
         """ DAC Algorithm: https://arxiv.org/abs/1809.02925
         """
         self.learning_algorithm = learning_algorithm
-        self.learning_algorithm.diayn_discriminator = discriminator
 
         self.expert_buffer = expert_buffer
         self.buffer = self.learning_algorithm.buffer
-        
+
         self.train_preprocessing = algo_params[c.TRAIN_PREPROCESSING]
 
         self.discriminator = discriminator
@@ -25,6 +24,22 @@ class DAC:
         self._gp_lambda = algo_params[c.GRADIENT_PENALTY_LAMBDA]
         self.device = algo_params[c.DEVICE]
         self.algo_params = algo_params
+
+        self._expbuf_last_sample_prop = algo_params.get(c.DISCRIMINATOR_EXPBUF_LAST_SAMPLE_PROP, 0)
+        if self._expbuf_last_sample_prop > 0:
+            # get final transition indices of each buffer
+            if type(self.expert_buffer.observations) == torch.Tensor:
+                obs = self.expert_buffer.observations[:len(self.expert_buffer)].cpu().numpy()
+                next_obs = self.expert_buffer.next_observations[:len(self.expert_buffer)].cpu().numpy()
+            else:
+                obs = self.expert_buffer.observations[:len(self.expert_buffer)]
+                next_obs = self.expert_buffer.next_observations[:len(self.expert_buffer)]
+
+            self._end_indices = np.argwhere(np.invert(np.all(obs[1:] == next_obs[:-1], axis=1))).flatten()
+            others = np.argwhere(np.all(obs[1:] == next_obs[:-1], axis=1)).flatten()
+
+            # this might be an end, but adding to others anyways
+            self._other_indices = np.concatenate([others, [len(self.expert_buffer) - 1]])
 
     def state_dict(self):
         state_dict = dict()
@@ -48,14 +63,28 @@ class DAC:
         self.discriminator_opt.zero_grad()
 
         tic = timeit.default_timer()
-        obss_e, _, acts_e, _, _, _, lengths = self.expert_buffer.sample(self._discriminator_batch_size)
-        idxes = lengths.unsqueeze(-1).repeat(1, *obss_e.shape[2:]).unsqueeze(1)
+
+        if self._expbuf_last_sample_prop > 0:
+            num_ends = int(self._expbuf_last_sample_prop * self._discriminator_batch_size)
+            num_others = self._discriminator_batch_size - num_ends
+            indices = []
+            other_indices_samp = torch.multinomial(
+                torch.ones(len(self._other_indices)), num_others, replacement=True)
+            indices.extend(self._other_indices[other_indices_samp])
+            end_indices_samp = torch.multinomial(
+                torch.ones(len(self._end_indices)), num_ends, replacement=True)
+            indices.extend(self._end_indices[end_indices_samp])
+            obss_e, _, acts_e, _, _, _, lengths_e = self.expert_buffer.sample(
+                self._discriminator_batch_size, idxes=indices)
+        else:
+            obss_e, _, acts_e, _, _, _, lengths_e = self.expert_buffer.sample(self._discriminator_batch_size)
+        idxes = lengths_e.unsqueeze(-1).repeat(1, *obss_e.shape[2:]).unsqueeze(1)
         obss_e = torch.gather(obss_e, axis=1, index=idxes - 1)[:, 0, :]
         absorbing_idx_e = torch.where(obss_e[:, -1])[0]
         acts_e[absorbing_idx_e] = 0
         obss_e = self.train_preprocessing(obss_e)
 
-        obss, _, acts, _, _, _, _ = self.buffer.sample(self._discriminator_batch_size)
+        obss, _, acts, _, _, _, lengths = self.buffer.sample(self._discriminator_batch_size)
         idxes = lengths.unsqueeze(-1).repeat(1, *obss.shape[2:]).unsqueeze(1)
         obss = torch.gather(obss, axis=1, index=idxes - 1)[:, 0, :]
         absorbing_idx = torch.where(obss[:, -1])[0]
@@ -82,8 +111,10 @@ class DAC:
         gan_loss.backward()
 
         # Gradient Penalty Loss
-        obss_noise = torch.distributions.Uniform(0., 1.).sample(obss.shape)
-        acts_noise = torch.distributions.Uniform(0., 1.).sample(acts.shape)
+        obss_noise = torch.distributions.Uniform(
+            torch.tensor(0., device=obss.device), torch.tensor(1., device=obss.device)).sample(obss.shape)
+        acts_noise = torch.distributions.Uniform(
+            torch.tensor(0., device=obss.device), torch.tensor(1., device=obss.device)).sample(acts.shape)
         obss_mixture = obss_noise * obss + (1 - obss_noise) * obss_e
         acts_mixture = acts_noise * acts + (1 - acts_noise) * acts_e
         obss_mixture.requires_grad_(True)
@@ -108,8 +139,8 @@ class DAC:
         update_info[c.GP_LOSS].append(gp_loss.cpu().detach().numpy())
 
         return update_info
-        
-    
+
+
     def update(self, curr_obs, curr_h_state, act, rew, done, info, next_obs, next_h_state):
         # NOTE: The states are already processed such that the absorbing state padding is done through envs/wrappers/absorbing_state.py
         if curr_obs[:, -1] == 1:
@@ -122,7 +153,7 @@ class DAC:
                          info=info,
                          next_obs=next_obs,
                          next_h_state=next_h_state)
-        
+
         # The reward will be computed in the underlying policy learning algorithm
         # NOTE: Disable _store_to_buffer in learning algorithm
         discriminator_update_info = {}

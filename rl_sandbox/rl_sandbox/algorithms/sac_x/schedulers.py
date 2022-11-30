@@ -62,7 +62,7 @@ class QTableScheduler(Scheduler):
         return state_dict
 
     def load_state_dict(self, state_dict):
-        self.model.table = state_dict[c.Q_TABLE]
+        self.model.table = state_dict()[c.Q_TABLE]
 
     def _initialize_qtable(self, state=None):
         if state is None:
@@ -126,6 +126,7 @@ class FixedScheduler(Scheduler):
         super().__init__(max_schedule, num_tasks)
         assert intention_i < num_tasks
         self._intention_i = np.array(intention_i, dtype=np.int)
+        self._intention = np.array(intention_i, dtype=np.int)  # for compatibility
         self.zero = np.zeros((1, 1))
 
     def compute_action(self, state, h):
@@ -151,6 +152,7 @@ class RecycleScheduler(Scheduler):
         assert num_tasks == len(scheduling)
         self.count = 0
         self.scheduling = np.cumsum(scheduling)
+        self._intention = None
 
     def state_dict(self):
         return {
@@ -164,6 +166,7 @@ class RecycleScheduler(Scheduler):
 
     def compute_action(self, state, h):
         intention = np.where(self.count < self.scheduling)[0][0]
+        self._intention = intention
         self.count = (self.count + 1) % self.scheduling[-1]
         return np.array(intention, dtype=np.int), np.zeros(1), h.cpu().numpy(), self.zero, self.zero, None, None
 
@@ -200,6 +203,7 @@ class UScheduler(Scheduler):
     def select_action(self, intention_i, state, h):
         return np.array(intention_i, dtype=np.int), np.zeros(1), h.cpu().numpy(), self.zero, self.entropy
 
+
 class ConditionalWeightedScheduler(UScheduler):
     """
     reset_task_probs should be a list of num_tasks probabilities that sums to 1.
@@ -225,3 +229,58 @@ class ConditionalWeightedScheduler(UScheduler):
         return action, np.zeros(1), h.cpu().numpy(), self.lprob, self.entropy, None, None
 
 
+class WeightedRandomScheduler(UScheduler):
+    """
+    A fixed categorical scheduler
+    """
+    def __init__(self,
+                 task_select_probs,
+                 num_tasks,
+                 intention_i=0,
+                 max_schedule=0,
+                 task_options=None):
+        super().__init__(num_tasks, intention_i, max_schedule, task_options)
+        self.task_select_probs = task_select_probs
+
+    def compute_action(self, state, h):
+        action = np.array(np.random.choice(self.task_options, p=self.task_select_probs))
+
+        return action, np.zeros(1), h.cpu().numpy(), self.lprob, self.entropy, None, None
+
+
+class WeightedRandomSchedulerPlusHandcraft(WeightedRandomScheduler):
+    """
+    A weighted random scheduler that, with epsilon probability, chooses uniformly random from
+    a set of handcrafted trajectories for a single episode.
+    """
+    def __init__(self,
+                 task_select_probs,
+                 num_tasks,
+                 handcraft_traj_epsilon,  # fraction of time we choose a handcrafted traj
+                 handcraft_traj_options,  # list of trajs that are max_schedule long to choose from
+                 intention_i=0,
+                 max_schedule=0,
+                 task_options=None):
+        super().__init__(task_select_probs, num_tasks, intention_i, max_schedule, task_options)
+        self.task_select_probs = task_select_probs
+        self.handcraft_traj_epsilon = handcraft_traj_epsilon
+        self.handcraft_traj_options = handcraft_traj_options
+        self.cur_traj = None
+
+    def compute_action(self, state, h):
+        # first check observation to see if we're in a new traj
+        if len(state) == 0:
+            if np.random.rand() < self.handcraft_traj_epsilon:
+                # take a handcrafted traj
+                rand_int = np.random.randint(0, len(self.handcraft_traj_options))
+                self.cur_traj = self.handcraft_traj_options[rand_int]
+            else:
+                self.cur_traj = None
+
+        if self.cur_traj is None:
+            # weighted random action
+            return super().compute_action(state, h)
+        else:
+            # next index in cur traj
+            action = np.array(self.cur_traj[len(state)])
+            return action, np.zeros(1), h.cpu().numpy(), self.lprob, self.entropy, None, None

@@ -9,7 +9,8 @@ from rl_sandbox.auxiliary_tasks.auxiliary_tasks import AuxiliaryTask
 
 
 class SACDAC(SAC):
-    def __init__(self, model, policy_opt, qs_opt, alpha_opt, learn_alpha, buffer, algo_params, aux_tasks=AuxiliaryTask()):
+    def __init__(self, model, policy_opt, qs_opt, alpha_opt, learn_alpha, buffer, algo_params, aux_tasks=AuxiliaryTask(),
+                 expert_buffer=None):
         super().__init__(model=model,
                          policy_opt=policy_opt,
                          qs_opt=qs_opt,
@@ -18,6 +19,9 @@ class SACDAC(SAC):
                          buffer=buffer,
                          algo_params=algo_params,
                          aux_tasks=aux_tasks)
+
+        self.expert_buffer = expert_buffer
+        self._expert_buffer_rate = self.algo_params.get(c.EXPERT_BUFFER_MODEL_SAMPLE_RATE, 0.)
 
     def update_policy(self, batch_start_idx, obss, h_states, acts, rews, dones, next_obss, next_h_states, discounting, infos, lengths, update_info):
         tic = timeit.default_timer()
@@ -81,8 +85,34 @@ class SACDAC(SAC):
             for _ in range(self._num_gradient_updates // self._num_prefetch):
                 tic = timeit.default_timer()
                 obss, h_states, acts, rews, dones, next_obss, next_h_states, infos, lengths = self.buffer.sample_with_next_obs(
-                    self._batch_size * self._num_prefetch, next_obs, next_h_state)                
-                
+                    self._batch_size * self._num_prefetch, next_obs, next_h_state)
+
+                decay = self.algo_params.get(c.EXPERT_BUFFER_MODEL_SAMPLE_DECAY, 1.0)
+                self._expert_buffer_rate = self._expert_buffer_rate * decay
+
+                if int(self._expert_buffer_rate * self._batch_size * self._num_prefetch) > 0:
+                    assert self.expert_buffer is not None
+                    num_expert = int(self._expert_buffer_rate * self._batch_size * self._num_prefetch)
+                    num_policy = int(self._batch_size * self._num_prefetch - num_expert)
+                    start = 0
+                    end = num_expert
+                    e_obss, e_h_states, e_acts, e_rews, e_dones, e_next_obss, e_next_h_states, e_infos, e_lengths = \
+                        self.expert_buffer.sample_with_next_obs(num_expert, None, None)
+
+                    if e_rews.shape[-1] > 1:
+                        e_rews = e_rews[:, 2].unsqueeze(-1)  # to fix multitask reward bug
+
+                    obss[start:end] = e_obss
+                    h_states[start:end] = e_h_states
+                    acts[start:end] = e_acts
+                    rews[start:end] = e_rews
+                    dones[start:end] = e_dones
+                    next_obss[start:end] = e_next_obss
+                    next_h_states[start:end] = e_next_h_states
+                    for k in infos:
+                        infos[k][start:end] = e_infos[k]
+                    lengths[start:end] = e_lengths
+
                 obss = self.train_preprocessing(obss)
                 next_obss = self.train_preprocessing(next_obss)
 

@@ -41,7 +41,7 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
 
     if load_transfer_exp_settings:
         from rl_sandbox.train.transfer import load_and_transfer
-        old_config = load_and_transfer(load_transfer_exp_settings, load_model, intentions, buffer, 
+        old_config = load_and_transfer(load_transfer_exp_settings, load_model, intentions, buffer,
                                        experiment_config, experiment_config[c.DEVICE].index, discriminator)
         load_model = False  # so we don't do learning algorithm load later
 
@@ -49,15 +49,6 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                                      intentions,
                                      buffer,
                                      experiment_config)
-
-    sac_intentions = UpdateSACDACIntentions(model=intentions,
-                                            policy_opt=policy_opt,
-                                            qs_opt=qs_opt,
-                                            alpha_opt=alpha_opt,
-                                            learn_alpha=experiment_config[c.LEARN_ALPHA],
-                                            buffer=buffer,
-                                            algo_params=experiment_config,
-                                            aux_tasks=aux_tasks)
 
     assert experiment_config[c.NUM_TASKS] == len(experiment_config[c.EXPERT_BUFFERS]) or \
            (c.HANDCRAFT_REWARDS in experiment_config[c.DISCRIMINATOR_SETTING][c.KWARGS].keys() and
@@ -72,6 +63,21 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                 experiment_config[c.BUFFER_SETTING][c.KWARGS][c.MEMORY_SIZE] = data[c.MEMORY_SIZE]
 
             expert_buffers.append(make_buffer(experiment_config[c.BUFFER_SETTING], seed, load_path))
+
+    if experiment_config.get(c.EXPERT_BUFFER_MODEL_SAMPLE_RATE, 0.) > 0:
+        e_buffer_arg = expert_buffers
+    else:
+        e_buffer_arg = None
+
+    sac_intentions = UpdateSACDACIntentions(model=intentions,
+                                            policy_opt=policy_opt,
+                                            qs_opt=qs_opt,
+                                            alpha_opt=alpha_opt,
+                                            learn_alpha=experiment_config[c.LEARN_ALPHA],
+                                            buffer=buffer,
+                                            algo_params=experiment_config,
+                                            aux_tasks=aux_tasks,
+                                            expert_buffers=e_buffer_arg)
 
     discriminator_opt = make_optimizer(discriminator.parameters(), experiment_config[c.OPTIMIZER_SETTING][c.DISCRIMINATOR])
     update_intentions = UpdateDACIntentions(discriminator=discriminator,
@@ -90,7 +96,7 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                               algo_params=experiment_config)
 
     if load_model:
-        learning_algorithm.load_state_dict(torch.load(load_model))
+        learning_algorithm.load_state_dict(torch.load(load_model, map_location=experiment_config[c.DEVICE]))
 
     agent = SACXAgent(scheduler=scheduler,
                       intentions=intentions,

@@ -29,6 +29,7 @@ class FullyConnectedSeparate(SquashedGaussianSoftActorCritic):
                          normalize_value=normalize_value)
         self._action_dim = action_dim
         self._flatten = Flatten()
+
         self._policy = nn.Sequential(nn.Linear(obs_dim, 256),
                                      nn.ReLU(),
                                      nn.Linear(256, 256),

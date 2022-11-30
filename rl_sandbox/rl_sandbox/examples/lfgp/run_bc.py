@@ -28,8 +28,9 @@ parser.add_argument('--render', action='store_true', default=False, help="Render
 parser.add_argument('--num_training', type=int, default=1, help="Number of training steps")
 parser.add_argument('--num_updates', type=int, default=1000, help="Number of updates per training step")
 parser.add_argument('--batch_size', type=int, default=256, help="Batch size")
-parser.add_argument('--num_evals', type=int, default=10, help="Number of evaluation episodes")
+parser.add_argument('--num_evals', type=int, default=50, help="Number of evaluation episodes")
 parser.add_argument('--num_overfit', type=int, default=100, help="Overfit tolerance")
+parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
 args = parser.parse_args()
 
 seed = args.seed
@@ -53,8 +54,40 @@ max_episode_length = 360
 
 aux_reward_all = p_aux.PandaPlayXYZStateAuxiliaryReward(args.main_task, include_main=False)
 aux_reward_names = [func.__qualname__ for func in aux_reward_all._aux_rewards]
-eval_reward = aux_reward_all._aux_rewards[aux_reward_names.index(args.main_task)]
+# eval_reward = aux_reward_all._aux_rewards[aux_reward_names.index(args.main_task)]
+eval_reward = aux_reward_all._aux_rewards[aux_reward_names.index("stack_0" if args.main_task == "unstack_stack_env_only_0" else args.main_task)]
 # eval_reward = lambda reward, **kwargs: np.array([reward])  # use this for env reward
+
+expert_buffer = args.expert_path
+buffer_settings = {
+    c.KWARGS: {
+        c.MEMORY_SIZE: memory_size,
+        c.OBS_DIM: (obs_dim,),
+        c.H_STATE_DIM: (1,),
+        c.ACTION_DIM: (action_dim,),
+        c.REWARD_DIM: (1,),
+        c.INFOS: {c.MEAN: ((action_dim,), np.float32),
+                    c.VARIANCE: ((action_dim,), np.float32),
+                    c.ENTROPY: ((action_dim,), np.float32),
+                    c.LOG_PROB: ((1,), np.float32),
+                    c.VALUE: ((1,), np.float32),
+                    c.DISCOUNTING: ((1,), np.float32)},
+        c.CHECKPOINT_INTERVAL: 0,
+        c.CHECKPOINT_PATH: None,
+    },
+    c.STORAGE_TYPE: c.RAM,
+    c.BUFFER_TYPE: c.STORE_NEXT_OBSERVATION,
+    c.BUFFER_WRAPPERS: [
+        {
+            c.WRAPPER: TorchBuffer,
+            c.KWARGS: {}
+        },
+    ]
+}
+if args.gpu_buffer:
+    buffer_settings[c.KWARGS][c.DEVICE] = device
+    buffer_settings[c.STORAGE_TYPE] = c.GPU
+    buffer_settings[c.BUFFER_WRAPPERS] = []
 
 experiment_setting = {
     # Auxiliary Tasks
@@ -62,32 +95,7 @@ experiment_setting = {
 
     # Buffer
     c.BUFFER_PREPROCESSING: gt.AsType(),
-    c.BUFFER_SETTING: {
-        c.KWARGS: {
-            c.MEMORY_SIZE: memory_size,
-            c.OBS_DIM: (obs_dim,),
-            c.H_STATE_DIM: (1,),
-            c.ACTION_DIM: (action_dim,),
-            c.REWARD_DIM: (1,),
-            c.INFOS: {c.MEAN: ((action_dim,), np.float32),
-                      c.VARIANCE: ((action_dim,), np.float32),
-                      c.ENTROPY: ((action_dim,), np.float32),
-                      c.LOG_PROB: ((1,), np.float32),
-                      c.VALUE: ((1,), np.float32),
-                      c.DISCOUNTING: ((1,), np.float32)},
-            c.CHECKPOINT_INTERVAL: 0,
-            c.CHECKPOINT_PATH: None,
-        },
-        c.STORAGE_TYPE: c.RAM,
-        c.STORE_NEXT_OBSERVATION: True,
-        c.BUFFER_WRAPPERS: [
-            {
-                c.WRAPPER: TorchBuffer,
-                c.KWARGS: {},
-            },
-        ],
-        c.LOAD_BUFFER: args.expert_path,
-    },
+    c.BUFFER_SETTING: buffer_settings,
 
     # Environment
     c.ACTION_DIM: action_dim,
@@ -134,7 +142,7 @@ experiment_setting = {
     c.EVALUATION_RETURNS: [],
     c.NUM_EVALUATION_EPISODES: args.num_evals,
     c.EVALUATION_REWARD_FUNC: eval_reward,
-    
+
     # General
     c.DEVICE: device,
     c.SEED: seed,
@@ -160,12 +168,14 @@ experiment_setting = {
             c.NORMALIZE_VALUE: False,
         },
     },
-    
+
     c.OPTIMIZER_SETTING: {
         c.POLICY: {
-            c.OPTIMIZER: torch.optim.Adam,
+            # c.OPTIMIZER: torch.optim.Adam,
+            c.OPTIMIZER: torch.optim.AdamW,  # need this for proper weight decay
             c.KWARGS: {
-                c.LR: 3e-4,
+                c.LR: 1e-5,
+                c.WEIGHT_DECAY: 0.01,
             },
         },
     },
@@ -177,9 +187,10 @@ experiment_setting = {
     c.ACCUM_NUM_GRAD: 1,
     c.OPT_EPOCHS: args.num_updates,
     c.OPT_BATCH_SIZE: args.batch_size,
-    c.MAX_GRAD_NORM: 1e10,
+    c.MAX_GRAD_NORM: 10,
     c.VALIDATION_RATIO: 0.3,
     c.OVERFIT_TOLERANCE: args.num_overfit,
+    c.EXPERT_BUFFER: expert_buffer,
 
     # Progress Tracking
     c.CUM_EPISODE_LENGTHS: [0],

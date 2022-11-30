@@ -1,6 +1,6 @@
-# Learning from Guided Play: Improving Exploration in Adversarial Imitation Learning with Simple Auxiliary Tasks
-#### Trevor Ablett*, Bryan Chan*, Jonathan Kelly _(*equal contribution)_
-*Submitted to Robotics and Automation Letters (RA-L) with IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS'22) Option*
+# Learning from Guided Play: Improving Exploration for Adversarial Imitation Learning with Simple Auxiliary Tasks
+#### Trevor Ablett, Bryan Chan, Jonathan Kelly
+*Submitted to Robotics and Automation Letters (RA-L) with IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS'23) Option*
 
 **Paper website:** https://papers.starslab.ca/lfgp/
 
@@ -15,13 +15,16 @@ Adversarial Imitation Learning (AIL) is a technique for learning from demonstrat
 
 This repository contains the source code for reproducing our results.
 
-## Setup
-We recommend the readers to setup a virtual environment (e.g. `virtualenv`, `conda`, `pyenv`, etc.). Please also ensure to use Python 3.7 as we have not tested in any other Python versions. In the following, we assume the working directory is the directory containing this README:
+## 1 Setup
+We recommend setting up a virtual environment (e.g. `virtualenv`, `conda`, `pyenv`, etc.).
+We also recommend using Python 3.9, as that was used for generating our experimental results, but the code should work with other versions as well.
+In the following, we assume the working directory is the directory containing this README:
 ```
 .
 ├── lfgp_data/
 ├── pytorch-a2c-ppo-acktr-gail/
 ├── rl_sandbox/
+├── scripts/
 ├── six_state_mdp.py
 └── README.md
 ```
@@ -29,224 +32,140 @@ We recommend the readers to setup a virtual environment (e.g. `virtualenv`, `con
 To install, simply clone and install with pip, which will automatically install all dependencies:
 ```
 git clone git@github.com:utiasSTARS/lfgp.git && cd lfgp
-pip install rl_sandbox
+pip install rl_sandbox/
 ```
 
-## Environments
+## 2 Quick Start
+To quickly get started training or testing models, first download the expert data (also including trained models) from here (400MB): [lfgp_data](https://drive.google.com/file/d/1FmXjZbC1Hj8vF22V4F3WBxiWYbqoRJ8h/view).
+Add it to the top level folder as shown above.
+
+### 2.1 Training
+First, switch into the scripts folder:
+```bash
+cd scripts/experiments
+```
+
+To train a Stack model with LfGP, run the following:
+```bash
+bash lfgp.bash 1 cuda:0 stack 1000_steps local wrs_plus_handcraft .95 .1 test
+```
+Take a look at the bash script to see what each of the arguments means.
+
+Use these scripts to train Multitask BC, DAC, and BC:
+```bash
+bash multi_bc_no_overfit.bash 1 cuda:0 stack 1000_steps local test
+```
+
+```bash
+bash dac.bash 1 cuda:0 stack 6000_steps local .95 .1 test
+```
+
+```bash
+bash bc_no_overfit.bash 1 cuda:0 stack 6000_steps local test
+```
+
+For reference, on a V100 gpu, our train times (to 2M steps) were approximately:
+
+| Algorithm    | Time | 
+| -            | -    |
+| LfGP         | 32h  |
+| Multitask BC | 20h  |
+| DAC          | 12h  |
+| BC           | 3h   |
+
+### 2.2 Testing
+To evaluate and/or view a trained Stack model, switch into the `evaluation` folder, and run the following script:
+```bash
+bash visualize_model.bash 42 "stack/lfgp_wrs_hc" "state_dict.pt" "lfgp_experiment_setting.pkl" 50 2 true false ""
+```
+
+Switch the second last argument from `false` to `true` to turn on simple rendering.
+
+### 2.3 Creating Data
+You can recreate our datasets or create new ones using the scripts in `create_data`.
+To create a multitask dataset for the stack task, with 1000 (s,a) pairs per task and without extra final transition pairs, run:
+```bash
+cd scripts/create_data
+bash create_expert_data.bash stack 1000
+```
+
+To create a modified stack dataset that has 400 regular (s,a) pairs and 100 extra final transitions, run
+```bash
+bash create_modified_data.bash stack 1000 400 100 1
+```
+
+Note that the datasets contained in our provided `lfgp_folder` already include the extra final transitions (e.g., the `1000_steps` datasets actually have 800 (s,a) pairs and 200 extra final transitions per task).
+
+## 3 Environments
 In this paper, we evaluated our method in the four environments listed below:
 ```
-bring_0                  # bring blue block to blue zone
-stack_0                  # stack blue block onto green block
-insert_0                 # insert blue block into blue zone slot
-unstack_stack_env_only_0 # remove green block from blue block, and stack blue block onto green block
+bring                    # bring blue block to blue zone
+stack                    # stack blue block onto green block
+insert                   # insert blue block into blue zone slot
+unstack_stack_env_only   # remove green block from blue block, and stack blue block onto green block
 ```
 
-## Trained Models and Expert Data
-The expert and trained lfgp models can be found at [this google drive link](https://drive.google.com/file/d/1yxJ4FuDWvFxkDg4rGSrAdwpw5UIw0Gjd/view). The zip file is 570MB. All of our generated expert data is included, but we only include single seeds of each trained model to reduce the size.
+## 4 Trained Models and Expert Data
+The expert and trained lfgp models can be found at [this google drive link](https://drive.google.com/file/d/1FmXjZbC1Hj8vF22V4F3WBxiWYbqoRJ8h/view). The zip file is 400MB. All of our generated expert data is included, but we only include single seeds of each trained model to reduce the size.
 
-### The Data Directory
+### 4.1 The Data Directory
 This subsection provides the desired directory structure that we will be assuming for the remaining README.
 The unzipped `lfgp_data` directory follows the structure:
 ```
 .
 ├── lfgp_data/
 │   ├── expert_data/
-│   │   ├── unstack_stack_env_only_0-expert_data/
-│   │   │   ├── reset/
-│   │   │   │   ├── 54000_steps/
-│   │   │   │   └── 9000_steps/
-│   │   │   └── play/
-│   │   │       └── 9000_steps/
-│   │   ├── stack_0-expert_data/
-│   │   │   └── (same as unstack_stack_env_only_0-expert_data)/
-│   │   ├── insert_0-expert_data/
-│   │   │   └── (same as unstack_stack_env_only_0-expert_data)/
-│   │   └── bring_0-expert_data/
-│   │       └── (same as unstack_stack_env_only_0-expert_data)/
+│   │   ├── stack/
+│   │   │   ├── 500_steps/
+│   │   │   │   ├── int_0.gz
+│   │   │   │   ├── int_1.gz
+│   │   │   │   ├── ...
+│   │   │   │   └── int_6.gz
+│   │   │   ├── 1000_steps/
+│   │   │   ├── ...
+│   │   │   └── 9000_steps/
+│   │   │       └── int_2.gz  # only one task for single-task models
+│   │   ├── bring/
+│   │   │   ├── 1000_steps/
+│   │   │   │   ├── int_0.gz
+│   │   │   │   ├── int_1.gz
+│   │   │   │   ├── ...
+│   │   │   │   └── int_6.gz
+│   │   │   └── 6000_steps/
+│   │   │       └── int_2.gz  # only one task for single-task models
+│   │   ├── insert/
+│   │   │   └── (same as bring)/
+│   │   └── unstack_stack_env_only/
+│   │       └── (same as bring)/
 │   └── trained_models/
 │       ├── experts/
-│       │   ├── unstack_stack_env_only_0/
-│       │   ├── stack_0/
-│       │   ├── insert_0/
-│       │   └── bring_0/
-│       ├── unstack_stack_env_only_0/
-│       │   ├── multitask_bc/
-│       │   ├── lfgp_ns/
-│       │   ├── lfgp/
+│       │   ├── stack/
+│       │   |   ├── sacx_experiment_setting.pkl
+│       │   |   └── state_dict.pt
+│       │   ├── unstack_stack_env_only/
+│       │   ├── insert/
+│       │   └── bring/
+│       ├── stack/
+│       │   ├── bc/
 │       │   ├── dac/
-│       │   ├── bc_less_data/
-│       │   └── bc/
-│       ├── stack_0/
-│       │   └── (same as unstack_stack_env_only_0)
-│       ├── insert_0/
-│       │   └── (same as unstack_stack_env_only_0)
-│       └── bring_0/
-│           └── (same as unstack_stack_env_only_0)
-├── liegroups/
+│       │   ├── lfgp_wrs_hc/
+│       │   └── multitask_bc/
+│       ├── unstack_stack_env_only_0/
+│       ├── insert/
+│       ├── bring/
+│       └── ablations/
+│           ├── data/
+│           |   ├── half_data/
+│           |   ├── no_extra_final/
+│           |   ├── oneandahalf_data/
+│           |   └── subsampled
+│           ├── baseline_alternatives/
+│           ├── sampling/
+│           └── scheduler/
 ├── manipulator-learning/
 ├── pytorch-a2c-ppo-acktr-gail/
 ├── rl_sandbox/
-├── README.md
-└── requirements.txt
-```
-
-## Create Expert and Generate Expert Demonstrations
-Readers can generate their own experts and expert demonstrations by executing the scripts in the `rl_sandbox/rl_sandbox/examples/lfgp/experts` directory. More specifically, `create_expert.py` and `create_expert_data.py` respectively train the expert and generate the expert demonstrations. We note that training the expert is time consuming and may take up to multiple days.
-
-To create an expert, you can run the following command:
-```
-# Create a stack expert using SAC-X with seed 0. --gpu_buffer would store the replay buffer on the GPU.
-# For more details, please use --help command for more options.
-python rl_sandbox/rl_sandbox/examples/lfgp/experts/create_expert.py \
-    --seed=0 \
-    --main_task=stack_0 \
-    --device=cuda \
-    --gpu_buffer
-```
-
-A `results` directory will be generated. A tensorboard, an experiment setting, a training progress file, model checkpoints, and a buffer checkpoint will be created.
-
-To generate play-based and reset-based expert data using a trained model, you can run the following commands:
-```
-# Generate play-based stack expert data with seed 1. The program halts when one of --num_episodes or --num_steps is satisfied.
-# For more details, please use --help command for more options
-python rl_sandbox/rl_sandbox/examples/lfgp/experts/create_expert_data.py \
---model_path=lfgp_data/trained_models/experts/stack_0/state_dict.pt \
---config_path=lfgp_data/trained_models/experts/stack_0/sacx_experiment_setting.pkl \
---save_path=./test_expert_data/ \
---num_episodes=10000000 \
---num_steps=9000 \
---seed=1 \
---render \
---scheduler_period=90 \
---success_only \
---reset_on_success  # note that this does not actually reset the environment without reset_between_intentions, it just flips the scheduler
-
-# Generate reset-based stack expert data with seed 1. Note that --num_episodes will need to be scaled by number of tasks (i.e. num_episodes * num_tasks).
-python rl_sandbox/rl_sandbox/examples/lfgp/experts/create_expert_data.py \
---model_path=lfgp_data/trained_models/experts/stack_0/state_dict.pt \
---config_path=lfgp_data/trained_models/experts/stack_0/sacx_experiment_setting.pkl \
---save_path=./test_expert_data/ \
---num_episodes=10000000 \
---num_steps=9000 \
---seed=1 \
---render \
---forced_schedule="{0: {0: ([0, 1, 2, 3, 4, 5], [.15, .15, .25, .15, .15, .15], ['k', 'd', 'd', 'd', 'd', 'd']), 45: 0}, 1: {0: 3, 15: 1}}" \
---scheduler_period=90 \
---success_only \
---reset_on_success \
---reset_between_intentions 
-
-```
-
-The generated expert data will be stored under `--save_path`, in separate files `int_0.gz, ..., int_{num_tasks - 1}.gz`.
-
-## Training the Models with Imitation Learning
-The following commands assume you're using the provided expert data and the directory structure outlined above.
-The training scripts `run_*.py` are stored in `rl_sandbox/rl_sandbox/examples/lfgp` directory. There are five `run` scripts, each corresponding to a variant of the compared methods (except for behavioural cloning less data, since the change is only in the expert data). The runs will be saved in the same `results` directory mentioned previously. Note that the default hyperparameters specified in the scripts are listed on the appendix.
-
-### Behavioural Cloning (BC)
-There are two scripts for single-task and multitask BC: `run_bc.py` and `run_multitask_bc.py`. You can run the following commands:
-```
-# Train single-task BC agent to stack with using reset-based data.
-# NOTE: intention 2 is the main intention (i.e. stack intention). The main intention is indexed at 2 for all environments.
-python rl_sandbox/rl_sandbox/examples/lfgp/run_bc.py \
---seed=0 \
---expert_path=lfgp_data/expert_data/stack_0-expert_data/reset/54000_steps/int_2.gz \
---main_task=stack_0 \
---render \
---device=cuda
-
-# Train multitask BC agent to stack with using reset-based data.
-python rl_sandbox/rl_sandbox/examples/lfgp/run_multitask_bc.py \
---seed=0 \
---expert_paths="lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_0.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_1.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_2.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_3.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_4.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_5.gz" \
---main_task=stack_0 \
---render \
---device=cuda
-
-```
-
-### Adversarial Imitation learning (AIL)
-There are three scripts for Discriminator-Actor-Critic (DAC), Learning from Guided Play (LfGP), and LfGP-NS (No Schedule): `run_dac.py`, `run_lfgp.py`, `run_lfgp_ns.py`. You can run the following commands:
-```
-# Train DAC agent to stack with using reset-based data.
-python rl_sandbox/rl_sandbox/examples/lfgp/run_dac.py \
---seed=0 \
---expert_path=lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_2.gz \
---main_task=stack_0 \
---render \
---device=cuda
-
-# Train LfGP agent to stack with using reset-based data.
-python rl_sandbox/rl_sandbox/examples/lfgp/run_lfgp.py \
---seed=0 \
---expert_paths="lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_0.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_1.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_2.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_3.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_4.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_5.gz" \
---main_task=stack_0 \
---device=cuda \
---render
-
-# Train LfGP-NS agent to stack with using reset-based data.
-python rl_sandbox/rl_sandbox/examples/lfgp/run_lfgp_ns.py \
---seed=0 \
---expert_paths="lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_0.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_1.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_2.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_3.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_4.gz,\
-lfgp_data/expert_data/stack_0-expert_data/reset/9000_steps/int_5.gz" \
---main_task=stack_0 \
---device=cuda \
---render
-
-```
-
-We train the GAIL agent using the [`pytorch-a2c-ppo-acktr-gail`](https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail) repository. Install following the instructions provided by `pytorch-a2c-ppo-acktr-gail/README.md`. We simply convert the expert data using `pytorch-a2c-ppo-acktr-gail/gail_experts/convert_lfgp_expert_data.py` and execute GAIL through `pytorch-a2c-ppo-acktr-gail/scripts/gail.bash`. You can run the following commands:
-```
-# Convert main tasks' expert data into desired format
-cd pytorch-a2c-ppo-acktr-gail/gail_experts
-python convert_lfgp_expert_data.py
-
-# Train GAIL agent to stack
-cd ../scripts
-./gail.bash stack_0 # (Supports: stack_0, bring_0, insert_0, unstack_stack_env_only_0)
-```
-
-Note that `convert_lfgp_expert_data.py` assumes the datasets are following `pytorch-a2c-ppo-acktr-gail/gail_experts/data/<main_task>-expert_data/reset/int_2.gz`. This means it is looking for the reset-based variant of the main task's expert dataset.
-
-## Evaluating the Models
-The readers may load up trained agents and evaluate them using the `evaluate.py` script under the `rl_sandbox/rl_sandbox/examples/eval_tools` directory.
-
-```
-# To evaluate a single tasks (2 is stack)
-python rl_sandbox/rl_sandbox/examples/eval_tools/evaluate.py \
---seed=1 \
---model_path=lfgp_data/trained_models/experts/stack_0/state_dict.pt \
---config_path=lfgp_data/trained_models/experts/stack_0/sacx_experiment_setting.pkl \
---num_episodes=10 \
---intention=2 \
---render \
---device=cuda
-
-# To run all intentions for multitask agents (e.g. SAC-X)
-python rl_sandbox/rl_sandbox/examples/eval_tools/evaluate.py \
---seed=1 \
---model_path=lfgp_data/trained_models/experts/stack_0/state_dict.pt \
---config_path=lfgp_data/trained_models/experts/stack_0/sacx_experiment_setting.pkl \
---num_episodes=10 \
---intention=-1 \
---render \
---device=cuda
+└── README.md
 ```
 
 ## Citation

@@ -69,8 +69,12 @@ class BC:
         self._optimizer.load_state_dict(state_dict[c.OPTIMIZER])
 
     def _compute_bc_loss(self, obss, h_states, acts, lengths):
-        dist, _, _ = self.model(obss, h_states, lengths=lengths)
-        return torch.sum((dist.mean - acts.to(self.device)) ** 2)
+        # old method, not quite correct
+        # dist, _, _ = self.model(obss, h_states, lengths=lengths)
+        # return torch.sum((dist.mean - acts.to(self.device)) ** 2)
+
+        p_acts, _ = self.model.deterministic_act_lprob(obss, h_states)
+        return torch.sum((p_acts - acts.to(self.device)) ** 2)
 
     def clone_policy(self, update_info):
         sampler = self._train_sampler.__iter__()
@@ -79,7 +83,7 @@ class BC:
             obss, h_states, acts, rews, dones, infos, lengths = self.expert_buffer.sample(self._opt_batch_size, idxes=idxes)
             update_info[c.SAMPLE_TIME].append(timeit.default_timer() - tic)
             tic = timeit.default_timer()
-    
+
             self._optimizer.zero_grad()
             total_bc_loss = 0.
             for accum_i in range(self._accum_num_grad):
@@ -92,11 +96,11 @@ class BC:
                 bc_loss /= self._opt_batch_size
                 bc_loss.backward()
                 total_bc_loss += bc_loss.detach().cpu()
-    
+
             nn.utils.clip_grad_norm_(self.model.parameters(),
                                      self._max_grad_norm)
             self._optimizer.step()
-    
+
             update_info[c.BC_LOSS].append(total_bc_loss.numpy())
             update_info[c.POLICY_UPDATE_TIME].append(timeit.default_timer() - tic)
 
@@ -235,8 +239,12 @@ class MultitaskBC:
         self._aux_tasks.load_state_dict(state_dict[c.AUXILIARY_TASKS])
 
     def _compute_bc_loss(self, obss, h_states, acts, lengths, task_i):
-        dist, _, _ = self.model(obss, h_states, lengths=lengths)
-        return torch.sum((dist.mean[:, task_i] - acts.to(self.device)) ** 2)
+        # old method, not quite correct
+        # dist, _, _ = self.model(obss, h_states, lengths=lengths)
+        # return torch.sum((dist.mean[:, task_i] - acts.to(self.device)) ** 2)
+
+        p_acts, _ = self.model.deterministic_act_lprob(obss, h_states)
+        return torch.sum((p_acts[:, task_i] - acts.to(self.device)) ** 2)
 
     def clone_policy(self, update_info):
         samplers = [train_sampler.__iter__() for train_sampler in self._train_samplers]
@@ -318,7 +326,7 @@ class MultitaskBC:
                         validation_loss = validation_loss / self._opt_batch_size * self.coefficients[task_i]
                         per_task_loss[task_i] += validation_loss.detach().cpu()
                         total_validation_loss += validation_loss.detach().cpu()
-                
+
             if total_validation_loss > self.best_validation_loss:
                 self._overfit_count += 1
                 if self._overfit_count == self._overfit_tolerance:

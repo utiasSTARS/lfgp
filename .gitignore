@@ -1,5 +1,7 @@
 # output
 *.out
+results/
+lfgp_data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -92,6 +94,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.envrc
 
 # Spyder project settings
 .spyderproject
@@ -105,3 +108,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# vscode
+.vscode

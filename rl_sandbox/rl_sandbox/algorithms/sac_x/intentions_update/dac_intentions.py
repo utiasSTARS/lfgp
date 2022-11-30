@@ -1,3 +1,4 @@
+from pydoc import replace
 import numpy as np
 import timeit
 import torch
@@ -14,11 +15,10 @@ class UpdateDACIntentions:
         This wraps around a learning algorithm.
         """
         self.learning_algorithm = learning_algorithm
-        self.learning_algorithm.diayn_discriminator = discriminator
 
         self.expert_buffers = expert_buffers
         self.buffer = self.learning_algorithm.buffer
-        
+
         self.train_preprocessing = algo_params[c.TRAIN_PREPROCESSING]
 
         self.discriminator = discriminator
@@ -34,6 +34,26 @@ class UpdateDACIntentions:
         self._num_tasks = algo_params.get(c.NUM_TASKS, 1)
         self._action_dim = algo_params[c.ACTION_DIM]
         self._task_batch_size = self._discriminator_batch_size * self.discriminator._output_dim
+        self._num_discrim_updates = algo_params.get(c.DISCRIMINATOR_NUM_UPDATES, 1)
+
+        self._expbuf_last_sample_prop = algo_params.get(c.DISCRIMINATOR_EXPBUF_LAST_SAMPLE_PROP, 0)
+        if self._expbuf_last_sample_prop > 0:
+            self._end_indices = []
+            self._other_indices = []
+            # get final transition indices of each buffer
+            for eb in self.expert_buffers:
+                if type(eb.observations) == torch.Tensor:
+                    obs = eb.observations[:len(eb)].cpu().numpy()
+                    next_obs = eb.next_observations[:len(eb)].cpu().numpy()
+                else:
+                    obs = eb.observations[:len(eb)]
+                    next_obs = eb.next_observations[:len(eb)]
+
+                ends = np.argwhere(np.invert(np.all(obs[1:] == next_obs[:-1], axis=1))).flatten()
+                others = np.argwhere(np.all(obs[1:] == next_obs[:-1], axis=1)).flatten()
+                others = np.concatenate([others, [len(eb) - 1]])  # this might be an end, but adding to others anyways
+                self._end_indices.append(ends)
+                self._other_indices.append(others)
 
     def state_dict(self):
         state_dict = dict()
@@ -62,8 +82,21 @@ class UpdateDACIntentions:
         obss_e = []
         acts_e = []
 
-        for expert_buffer in self.expert_buffers:
-            curr_obss_e, _, curr_acts_e, _, _, _, lengths = expert_buffer.sample(self._discriminator_batch_size)
+        for i, expert_buffer in enumerate(self.expert_buffers):
+            if self._expbuf_last_sample_prop > 0:
+                num_ends = int(self._expbuf_last_sample_prop * self._discriminator_batch_size)
+                num_others = self._discriminator_batch_size - num_ends
+                indices = []
+                other_indices_samp = torch.multinomial(
+                    torch.ones(len(self._other_indices[i])), num_others, replacement=True)
+                indices.extend(self._other_indices[i][other_indices_samp])
+                end_indices_samp = torch.multinomial(
+                    torch.ones(len(self._end_indices[i])), num_ends, replacement=True)
+                indices.extend(self._end_indices[i][end_indices_samp])
+                curr_obss_e, _, curr_acts_e, _, _, _, lengths = expert_buffer.sample(
+                    self._discriminator_batch_size, idxes=indices)
+            else:
+                curr_obss_e, _, curr_acts_e, _, _, _, lengths = expert_buffer.sample(self._discriminator_batch_size)
             idxes = lengths.unsqueeze(-1).repeat(1, *curr_obss_e.shape[2:]).unsqueeze(1)
             curr_obss_e = torch.gather(curr_obss_e, axis=1, index=idxes - 1)[:, 0, :]
             obss_e.append(curr_obss_e)
@@ -156,8 +189,8 @@ class UpdateDACIntentions:
         update_info[c.GP_LOSS].append(gp_loss.cpu().detach().numpy())
 
         return update_info
-        
-    
+
+
     def update(self, curr_obs, curr_h_state, act, rew, done, info, next_obs, next_h_state, update_buffer=True):
         # NOTE: The states are already processed such that the absorbing state padding is done through envs/wrappers/absorbing_state.py
         if update_buffer:
@@ -171,12 +204,13 @@ class UpdateDACIntentions:
                             info=info,
                             next_obs=next_obs,
                             next_h_state=next_h_state)
-        
+
         # The reward will be computed in the underlying policy learning algorithm
         # NOTE: Disable _store_to_buffer in learning algorithm
         discriminator_update_info = {}
         if self.learning_algorithm.step >= self.learning_algorithm._buffer_warmup:
-            discriminator_update_info = self.update_discriminator()
+            for i in range(self._num_discrim_updates):
+                discriminator_update_info = self.update_discriminator()
         updated, update_info = self.learning_algorithm.update(self.discriminator, next_obs, next_h_state)
 
         update_info.update(discriminator_update_info)

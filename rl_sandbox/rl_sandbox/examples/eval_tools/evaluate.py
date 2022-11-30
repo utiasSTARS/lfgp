@@ -25,6 +25,7 @@ import rl_sandbox.constants as c
 from rl_sandbox.examples.eval_tools.utils import load_model
 from rl_sandbox.learning_utils import evaluate_policy
 from rl_sandbox.utils import set_seed
+from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler
 
 
 def evaluate(args):
@@ -32,13 +33,13 @@ def evaluate(args):
 
     # need to initially load to get number of intentions in model
     config, env, buffer_preprocessing, agent = load_model(args.seed, args.config_path, args.model_path, args.intention,
-                                                          args.device, include_disc=False)
-    
+                                                          args.device, include_disc=False, force_egl=args.force_egl)
+
     if args.intention == -1:
         eval_intentions = list(range(config[c.NUM_TASKS]))
     else:
         eval_intentions = [args.intention]
-    
+
     all_int_ret = []
     all_int_suc = []
     exe_int_ret = []
@@ -47,7 +48,9 @@ def evaluate(args):
         set_seed(args.seed)
         config, buffer_preprocessing, agent = load_model(args.seed, args.config_path, args.model_path, eval_intention,
                                                          args.device, include_env=False, include_disc=False)
-        
+
+        agent.high_level_model = FixedScheduler(eval_intention, config.get(c.NUM_TASKS, 1))
+
         # load up aux rewards and aux successes
         if c.AUXILIARY_REWARDS in config:
             auxiliary_reward = config[c.AUXILIARY_REWARDS].reward
@@ -106,7 +109,7 @@ def evaluate(args):
         # extract the executed tasks, so we don't have to do it in other code
         exe_int_ret.append(rets[eval_intention])
         exe_int_suc.append(all_suc[eval_intention])
-    
+
     all_int_ret = np.array(all_int_ret).squeeze()
     all_int_suc = np.array(all_int_suc).squeeze()
     exe_int_ret = np.array(exe_int_ret).squeeze()
@@ -118,7 +121,7 @@ def evaluate(args):
     else:
         save_path = args.save_path
     print(f"Saving model to {save_path}")
-    pickle.dump({'evaluation_returns': all_int_ret, 'evaluation_successes_all_tasks': all_int_suc, 
+    pickle.dump({'evaluation_returns': all_int_ret, 'evaluation_successes_all_tasks': all_int_suc,
                  'executed_task_returns': exe_int_ret, 'executed_task_successes': exe_int_suc},
                 open(f'{save_path}', 'wb'))
 
@@ -134,6 +137,7 @@ if __name__ == "__main__":
     parser.add_argument("--render", action="store_true", help="Whether or not to render")
     parser.add_argument("--device", type=str, default="cpu", help="device to use")
     parser.add_argument("--stochastic", action="store_true", help="Whether to use stochastic policy")
+    parser.add_argument("--force_egl", action="store_true", help="Whether to use force env to use egl for render.")
     parser.add_argument("--save_path", required=False, type=str, default="",
                         help="Path to save results to. Defaults to model path.")
     parser.add_argument("--forced_schedule", required=False, type=str, default="",

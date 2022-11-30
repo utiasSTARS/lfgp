@@ -42,13 +42,13 @@ class UpdateQScheduler:
         print(f"Scheduler Trajectory: {traj} - Q([], a), for all a: {q_first_action}")
 
         tic = timeit.default_timer()
-        update_info[c.Q_UPDATE_TIME] = []
+        # update_info[c.Q_UPDATE_TIME] = []  # breaks print epoch summary if you use multiple gradient steps!!!
         rets = self._compute_returns()
         for step in range(len(traj)):
             old_q_value = self.model.compute_qsa(traj[:step], traj[step])
             new_q_value = old_q_value * (1 - self._scheduler_tau) + rets[step] * self._scheduler_tau
             self.model.update_qsa(traj[:step], traj[step], new_q_value)
-        update_info[c.Q_UPDATE_TIME].append(timeit.default_timer() - tic)
+        # update_info[c.Q_UPDATE_TIME].append(timeit.default_timer() - tic)
         update_info[c.SCHEDULER_TRAJ] = traj
         update_info[c.SCHEDULER_TRAJ_VALUE] = np.array(q_first_action)
 

@@ -48,6 +48,9 @@ def create_trajectories(args):
     config[c.DEVICE] = torch.device("cuda:0")
     config[c.INTENTIONS_SETTING][c.KWARGS][c.DEVICE] = config[c.DEVICE]
 
+    if args.render:
+        env_setting[c.KWARGS]["egl"] = True  # speeds up rendering
+
     # means that expert model not designed for absorbing states
     force_absorbing = not args.no_force_absorbing and not check_absorbing(config)
 
@@ -209,7 +212,7 @@ if __name__ == "__main__":
                         help="If set, reset environment between intentions.")
     parser.add_argument("--scheduler_period", required=False, type=int,
                         help="Overrides the scheduler period used during training")
-    parser.add_argument("--aux_override", required=False, type=str, 
+    parser.add_argument("--aux_override", required=False, type=str,
                         help="A string of integers to generate data for, overriding the policy's aux tasks "
                              "with a subset (e.g. \"0, 2, 3, 10\"")
     parser.add_argument("--render", default=False, action="store_true",
@@ -226,7 +229,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_episodes_per_buffer", required=False, type=str,
                         help="Number of episodes per buffer. If using forced schedule that stores to multiple buffers, "
                              "num episodes per keys in forced schedule. Same format as num_steps_per_buffer.")
-    parser.add_argument("--scripted_gripper", action="store_true", 
+    parser.add_argument("--scripted_gripper", action="store_true",
                         help="Whether or not to use scripted open/close grippers. "
                              "When enabled, will only collect for open/close")
     args = parser.parse_args()

@@ -328,7 +328,7 @@ class NumPyBuffer(Buffer):
                 c.RNG: self.rng,
             }, f)
 
-    def load(self, load_path):
+    def load(self, load_path, load_rng=True):
         with gzip.open(load_path, "rb") as f:
             data = pickle.load(f)
 
@@ -344,7 +344,8 @@ class NumPyBuffer(Buffer):
         self._count = data[c.COUNT]
 
         self._dtype = data[c.DTYPE]
-        self.rng = data[c.RNG]
+        if load_rng:
+            self.rng = data[c.RNG]
 
     def transfer_data(self, load_path):
         with gzip.open(load_path, "rb") as f:
@@ -535,7 +536,7 @@ class NextStateNumPyBuffer(NumPyBuffer):
                 c.RNG: self.rng,
             }, f)
 
-    def load(self, load_path):
+    def load(self, load_path, load_rng=True):
         with gzip.open(load_path, "rb") as f:
             data = pickle.load(f)
 
@@ -553,10 +554,8 @@ class NextStateNumPyBuffer(NumPyBuffer):
         self._count = data[c.COUNT]
 
         self._dtype = data[c.DTYPE]
-        if c.RNG in data.keys():
+        if load_rng:
             self.rng = data[c.RNG]
-        else:
-            self.rng = np.random
 
     def transfer_data(self, load_path):
         with gzip.open(load_path, "rb") as f:
@@ -608,5 +607,144 @@ class NextStateNumPyBuffer(NumPyBuffer):
 
 
 class TrajectoryNumPyBuffer(NumPyBuffer):
-    """ This buffer stores one trajectory as a sample
-    """
+    """This buffer stores one trajectory as a sample"""
+
+    def __init__(
+        self,
+        memory_size,
+        obs_dim,
+        h_state_dim,
+        action_dim,
+        reward_dim,
+        infos=dict(),
+        burn_in_window=0,
+        padding_first=False,
+        checkpoint_interval=0,
+        checkpoint_path=None,
+        rng=np.random,
+        dtype=np.float32
+    ):
+        super().__init__(
+            memory_size=memory_size,
+            obs_dim=obs_dim,
+            h_state_dim=h_state_dim,
+            action_dim=action_dim,
+            reward_dim=reward_dim,
+            infos=infos,
+            burn_in_window=burn_in_window,
+            padding_first=padding_first,
+            checkpoint_interval=checkpoint_interval,
+            checkpoint_path=checkpoint_path,
+            rng=rng,
+            dtype=dtype,
+        )
+        self._curr_episode_length = 0
+        self._episode_lengths = [0]
+        self._episode_start_idxes = [0]
+        self._last_observations = []
+
+    def push(
+        self,
+        obs,
+        h_state,
+        act,
+        rew,
+        done,
+        info,
+        next_obs,
+        next_h_state,
+        **kwargs,
+    ):
+        self._episode_lengths[-1] += 1
+        if self.is_full:
+            self._episode_lengths[0] -= 1
+            self._episode_start_idxes[0] += 1
+            if self._episode_lengths[0] <= 0:
+                self._episode_lengths.pop(0)
+                self._episode_start_idxes.pop(0)
+        if done:
+            self._episode_lengths.append(0)
+            self._last_observations.append(next_obs)
+            self._episode_start_idxes.append(self._pointer + 1)
+
+        return super().push(
+            obs=obs, h_state=h_state, act=act, rew=rew, done=done, info=info
+        )
+
+    def sample_trajs(
+        self,
+        batch_size,
+        next_obs,
+        idxes=None,
+        horizon_length=2,
+        **kwargs,
+    ):
+        assert horizon_length >= 2, f"horizon_length must be at least length of 2. Got: {horizon_length}"
+        if not len(self._episode_lengths):
+            raise NoSampleError
+
+        if idxes is None:
+            episode_idxes = self.rng.randint(int(self._episode_lengths[0] <= 1),
+                len(self._episode_lengths) - int(self._episode_lengths[-1] <= 1),
+                size=batch_size,
+            )
+        else:
+            episode_idxes = idxes
+
+        # Get subtrajectory within each episode
+        episode_lengths = np.array(self._episode_lengths)
+        episode_start_idxes = np.array(self._episode_start_idxes)
+        batch_episode_lengths = episode_lengths[episode_idxes]
+
+        sample_lengths = np.tile(np.arange(horizon_length), (batch_size, 1))
+        subtraj_start_idxes = self.rng.randint(batch_episode_lengths - 1)
+        sample_idxes = (
+            (subtraj_start_idxes + episode_start_idxes[episode_idxes])[:, None]
+            + sample_lengths
+        ) % self._memory_size
+        (
+            obss,
+            h_states,
+            acts,
+            rews,
+            dones,
+            infos,
+            lengths,
+        ) = self.get_transitions(sample_idxes.reshape(-1))
+
+        ep_lengths = np.clip(
+            batch_episode_lengths - subtraj_start_idxes, a_min=0, a_max=horizon_length
+        ).astype(np.int64)
+        sample_mask = np.flip(
+            np.cumsum(np.eye(horizon_length)[horizon_length - ep_lengths], axis=-1),
+            axis=-1,
+        )
+        sample_idxes = sample_idxes * sample_mask - np.ones(sample_idxes.shape) * (
+            1 - sample_mask
+        )
+        infos[c.EPISODE_IDXES] = episode_idxes
+
+        # If the episode ends too early, then the last observation should be in the trajectory
+        # at index length_i of the trajectory.
+        for sample_i, (ep_i, length_i) in enumerate(zip(episode_idxes, ep_lengths)):
+            if length_i == horizon_length:
+                continue
+            obss[sample_i * horizon_length + length_i] = self._last_observations[ep_i] if ep_i < len(self._last_observations) else next_obs
+
+        """
+        TODO: vectorize above, something like...
+        include_last_obs_eps = np.where(ep_lengths < horizon_length)
+        obss[(include_last_obs_eps, length_i)] = self._last_observations[episode_idxes[include_last_obs_eps]]
+        """
+
+        return (
+            obss,
+            h_states,
+            acts,
+            rews,
+            dones,
+            infos,
+            lengths,
+            ep_lengths,
+            sample_idxes,
+        )

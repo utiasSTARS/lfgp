@@ -39,3 +39,10 @@ class TorchBuffer(BufferWrapper):
     def sample_init_obs(self, batch_size):
         obss, h_states = super().sample_init_obs(batch_size)
         return torch.as_tensor(obss).float(), torch.as_tensor(h_states).float()
+
+    def sample_trajs(self, batch_size, next_obs, idxes=None, horizon_length=2):
+        obss, h_states, acts, rews, dones, infos, lengths, ep_lengths, idxes = super().sample_trajs(batch_size, next_obs, idxes, horizon_length)
+        obss, h_states, acts, rews, dones, infos, lengths = self._convert_batch_to_torch(obss, h_states, acts, rews, dones, infos, lengths)
+        ep_lengths = torch.as_tensor(ep_lengths).long()
+        idxes = torch.as_tensor(idxes).long()
+        return obss, h_states, acts, rews, dones, infos, lengths, ep_lengths, idxes

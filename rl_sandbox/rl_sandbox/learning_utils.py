@@ -18,7 +18,7 @@ import rl_sandbox.constants as c
 from rl_sandbox.envs.utils import make_env
 from rl_sandbox.envs.fake_env import FakeEnv
 from rl_sandbox.utils import DummySummaryWriter, EpochSummary
-from rl_sandbox.algorithms.sac_x.schedulers import RecycleScheduler
+from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler, RecycleScheduler
 from rl_sandbox.agents.hrl_agents import SACXAgent
 from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper
 
@@ -26,7 +26,7 @@ def buffer_warmup(agent,
                   env,
                   buffer,
                   buffer_preprocess,
-                  transition_preprocess,
+                #   transition_preprocess,
                   experiment_settings,
                   render=False):
     clip_action = experiment_settings.get(
@@ -59,15 +59,23 @@ def buffer_warmup(agent,
         info = dict()
         info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, 1)
         info.update(act_info)
-        
-        buffer.push(**transition_preprocess(curr_obs,
-                                            curr_h_state,
-                                            action,
-                                            reward,
-                                            done,
-                                            info,
-                                            next_obs=next_obs,
-                                            next_h_state=next_h_state))
+
+        # buffer.push(**transition_preprocess(curr_obs,
+        #                                     curr_h_state,
+        #                                     action,
+        #                                     reward,
+        #                                     done,
+        #                                     info,
+        #                                     next_obs=next_obs,
+        #                                     next_h_state=next_h_state))
+        buffer.push(curr_obs,
+                    curr_h_state,
+                    action,
+                    reward,
+                    done,
+                    info,
+                    next_obs=next_obs,
+                    next_h_state=next_h_state)
         curr_obs = next_obs
         curr_h_state = next_h_state
         curr_step += 1
@@ -423,14 +431,15 @@ def evaluate_policy(agent,
                     auxiliary_success=None,
                     verbose=False,
                     forced_schedule=None,
-                    stochastic_policy=False):
+                    stochastic_policy=False,
+                    success_ends_ep=True):  # should significantly speed up runs
 
     # example forced schedule: {0: 2, 90: 0}
 
     eval_returns = []
     done_successes = []
     aux_successes = []
-    for _ in range(num_episodes):
+    for e in range(num_episodes):
         eval_returns.append(0)
         curr_obs = env.reset()
         buffer_preprocess.reset()
@@ -440,6 +449,7 @@ def evaluate_policy(agent,
         done_successes.append(0)
         aux_successes.append([0])
         ts = 0
+
         while not done:
             if hasattr(env, c.RENDER) and render:
                 env.render()
@@ -448,8 +458,8 @@ def evaluate_policy(agent,
                 for t_key in forced_schedule.keys():
                     if ts == t_key:
                         print(f"switching to intention {forced_schedule[ts]}")
-                        agent.high_level_model._intention_i = forced_schedule[ts]
-                        agent.curr_high_level_act = forced_schedule[ts]
+                        agent.high_level_model._intention_i = np.array(forced_schedule[ts])
+                        agent.curr_high_level_act = np.array(forced_schedule[ts])
 
             if stochastic_policy:
                 action, h_state, act_info = agent.compute_action(
@@ -477,6 +487,19 @@ def evaluate_policy(agent,
                 aux_successes[-1] = np.array(auxiliary_success(observation=curr_obs,
                                                                action=action,
                                                                env_info=env_info['infos'][-1])).astype(int).tolist()
+                if success_ends_ep:
+                    if hasattr(agent, "high_level_model") and (type(agent.high_level_model) == RecycleScheduler or
+                            type(agent.high_level_model) == FixedScheduler):
+                        suc = aux_successes[-1][agent.high_level_model._intention]
+                    else:
+                        suc = aux_successes[-1][0]
+
+                    if suc:
+                        done = True
+                        # also, to keep returns reasonably consistent, add the current return for "remaining" timesteps
+                        eval_returns[-1] += np.atleast_1d(
+                            auxiliary_reward(observation=curr_obs, action=action, reward=reward, done=done,
+                            next_observation=next_obs, info=env_info)) * (env.unwrapped._max_episode_steps - (ts + 1))
 
             else:
                 aux_successes[-1] = np.zeros(eval_returns[-1].shape)
@@ -484,7 +507,7 @@ def evaluate_policy(agent,
             curr_obs = next_obs
 
             ts += 1
-        
+
         if verbose:
             print(eval_returns[-1], done_successes[-1])
 

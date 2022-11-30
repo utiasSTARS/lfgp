@@ -3,7 +3,7 @@
 eval_eps=50
 eval_interval=100000
 num_env_steps=4000000
-expert_file="../gail_experts/data/$1-expert_data/reset/int_2.pt"
+expert_file="../gail_experts/expert-data/${1}/reset/800_steps-90_sp_point5_play_open_200_extra_lasts/int_2.gz"
 env=$1
 num_processes=1
 #seed=$2

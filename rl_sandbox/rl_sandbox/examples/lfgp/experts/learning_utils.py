@@ -49,6 +49,7 @@ def multi_buffer_warmup(agent,
     successes = [False] * len(buffers)
 
     multi_buffers_per_timestep = hasattr(agent, '_current_action_buffers')
+
     if store_success_only or reset_on_success:
         assert hasattr(env, 'get_task_successes')
         experiment_settings[c.AUXILIARY_REWARDS].set_aux_rewards_str()
@@ -95,7 +96,18 @@ def multi_buffer_warmup(agent,
 
         if store_success_only or reset_on_success:
             successes = aux_suc(observation=curr_obs, action=action, env_info=env_info['infos'][-1])
-            success = successes[selected_action_i]
+            if type(agent) == SACXPlusForcedScheduleAgent and agent._original_selected_action is not None:
+                success = successes[agent._original_selected_action] and \
+                    agent.curr_high_level_act.item() == agent._original_selected_action
+            else:
+                success = successes[selected_action_i]
+
+            if pol_i_to_buffer_i is None:  # need to set ep_buf even if we're not storing anything
+                curr_buf = buffers[selected_action_i]
+                ep_buf = ep_bufs[selected_action_i]
+            else:
+                ep_buf = ep_bufs[pol_i_to_buffer_i[selected_action_i]]
+                curr_buf = buffers[pol_i_to_buffer_i[selected_action_i]]
 
         info = dict()
         info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, 1)
@@ -145,7 +157,7 @@ def multi_buffer_warmup(agent,
                     agent._curr_timestep = 0  # forces new action selection
                     if len(curr_buf) < curr_buf._memory_size and success and len(ep_buf) > 0:
                         o, h, a, r, d, no, nh, i, l, _ = ep_buf.sample_with_next_obs(None, None, None,
-                                                                                     range(len(ep_buf)))
+                                                                                     np.array(range(len(ep_buf))))
                         curr_buf.push_multiple(obss=o, h_states=h, acts=a, rews=r, dones=d, infos=i, next_obss=no,
                                                next_h_states=nh)
                     buf_lens = np.array([len(buf) for buf in buffers])
@@ -200,12 +212,12 @@ def multi_buffer_warmup(agent,
                             keep_buf = len(buffers[buf_i]) < buffers[buf_i]._memory_size and success and len(buf) > 0
                         if keep_buf:
                             o, h, a, r, d, no, nh, i, l, _ = buf.sample_with_next_obs(None, None, None,
-                                                                                         range(len(buf)))
+                                                                                         np.array(range(len(buf))))
                             buffers[buf_i].push_multiple(obss=o, h_states=h, acts=a, rews=r, dones=d, infos=i,
                                                          next_obss=no, next_h_states=nh)
                 else:
                     if len(curr_buf) < curr_buf._memory_size and success and len(ep_buf) > 0:
-                        o, h, a, r, d, no, nh, i, l, _ = ep_buf.sample_with_next_obs(None, None, None, range(len(ep_buf)))
+                        o, h, a, r, d, no, nh, i, l, _ = ep_buf.sample_with_next_obs(None, None, None, np.array(range(len(ep_buf))))
                         curr_buf.push_multiple(obss=o, h_states=h, acts=a, rews=r, dones=d, infos=i, next_obss=no, next_h_states=nh)
                 buf_lens = np.array([len(buf) for buf in buffers])
                 ep_bufs = [make_buffer(ep_buf_config) for _ in range(len(buffers))]

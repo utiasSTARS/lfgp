@@ -4,6 +4,23 @@ import torch.nn as nn
 
 import rl_sandbox.constants as c
 
+def default_weight_init(m):
+    if type(m) == nn.Linear:
+        torch.nn.init.xavier_uniform_(m.weight)
+        # torch.nn.init.orthogonal_(m.weight)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+    elif type(m) == nn.Conv2d:
+        torch.nn.init.kaiming_uniform_(m.weight)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+    elif type(m) == nn.LSTM or type(m) == nn.GRU:
+        torch.nn.init.xavier_uniform_(m.weight_ih_l0)
+        torch.nn.init.orthogonal_(m.weight_hh_l0)
+        if m.bias is not None:
+            m.bias_ih_l0.data.fill_(0)
+            m.bias_hh_l0.data.fill_(0)
+
 
 def construct_linear_layers(layers):
     linear_layers = nn.ModuleList()
@@ -29,9 +46,10 @@ class RunningMeanStd():
     Assumes shape to be (number of inputs, input_shape)
     """
 
-    def __init__(self, epsilon=1e-4, shape=(), norm_dim=(0,), a_min=-5., a_max=5.):
+    def __init__(self, epsilon=1e-4, shape=(), norm_dim=(0,), a_min=-5., a_max=5., device='cpu'):
         assert epsilon > 0.
         self.shape = shape
+        self.device = torch.device(device)
         self.mean = torch.zeros(shape, dtype=torch.float)
         self.var = torch.ones(shape, dtype=torch.float)
         self.epsilon = epsilon
@@ -39,6 +57,7 @@ class RunningMeanStd():
         self.a_min = a_min
         self.a_max = a_max
         self.norm_dim = norm_dim
+        self.to(self.device)
 
     def to(self, device):
         self.mean = self.mean.to(device)
@@ -70,7 +89,7 @@ class RunningMeanStd():
 
     def normalize(self, x):
         x_shape = x.shape
-        x = x.reshape(-1, *self.shape)
+        x = x.reshape(-1, *self.shape).to(self.device)
         normalized_x = torch.clamp((x - self.mean) / torch.sqrt(self.var + self.epsilon),
                                    min=self.a_min,
                                    max=self.a_max)

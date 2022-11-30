@@ -8,16 +8,13 @@ import rl_sandbox.constants as c
 import rl_sandbox.examples.lfgp.experiment_utils as exp_utils
 import rl_sandbox.transforms.general_transforms as gt
 
-from rl_sandbox.agents.random_agents import UniformContinuousAgent
-from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler, RecycleScheduler
 from rl_sandbox.buffers.wrappers.torch_buffer import TorchBuffer
-from rl_sandbox.envs.wrappers.action_repeat import ActionRepeatWrapper
 from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper
+from rl_sandbox.envs.wrappers.action_repeat import ActionRepeatWrapper
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
+from rl_sandbox.train.train_multitask_bc_no_overfit import train_multitask_bc_no_overfit
 from rl_sandbox.model_architectures.actor_critics.fully_connected_soft_actor_critic import MultiTaskFullyConnectedSquashedGaussianSAC
-from rl_sandbox.model_architectures.discriminators.fully_connected_discriminators import ActionConditionedFullyConnectedDiscriminator
-from rl_sandbox.model_architectures.layers_definition import VALUE_BASED_LINEAR_LAYERS, SAC_DISCRIMINATOR_LINEAR_LAYERS
-from rl_sandbox.train.train_lfgp_sac import train_lfgp_sac
+from rl_sandbox.model_architectures.layers_definition import VALUE_BASED_LINEAR_LAYERS
 
 
 def str2tuple(v):
@@ -31,18 +28,16 @@ parser.add_argument('--exp_name', type=str, default="", help="String correspondi
 parser.add_argument('--main_task', type=str, default="stack_01", help="Main task (for play environment)")
 parser.add_argument('--device', type=str, default="cpu", help="device to use")
 parser.add_argument('--render', action='store_true', default=False, help="Render training")
-parser.add_argument('--max_steps', type=int, default=4000000, help="Number of steps to interact with")
-parser.add_argument('--memory_size', type=int, default=4000000, help="Memory size of buffer")
-parser.add_argument('--eval_freq', type=int, default=200000, help="The frequency of evaluating the performance of the current policy")
+parser.add_argument('--num_training', type=int, default=1, help="Number of training steps")
+parser.add_argument('--num_updates', type=int, default=100000, help="Number of updates per training step")
+parser.add_argument('--batch_size', type=int, default=256, help="Batch size")
 parser.add_argument('--num_evals_per_task', type=int, default=50, help="Number of evaluation episodes per task")
-parser.add_argument('--main_intention', type=int, default=2, help="The intention to use for exploration")
-parser.add_argument('--max_episode_length', type=int, default=360, help="Maximum length of episode.")
 parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
 args = parser.parse_args()
 
 seed = args.seed
 
-save_path = exp_utils.get_save_path(c.LFGP_NS, args.main_task, args.seed, args.exp_name, args.user_machine)
+save_path = exp_utils.get_save_path(c.MULTITASK_BC, args.main_task, args.seed, args.exp_name, args.user_machine)
 
 for expert_path in args.expert_paths:
     assert os.path.isfile(expert_path), "File {} does not exist".format(expert_path)
@@ -50,6 +45,7 @@ for expert_path in args.expert_paths:
 aux_reward = p_aux.PandaPlayXYZStateAuxiliaryReward(args.main_task, include_main=False)
 num_tasks = aux_reward.num_auxiliary_rewards
 expert_buffers = args.expert_paths
+num_evaluation_episodes = args.num_evals_per_task * num_tasks
 
 obs_dim = 60  # +1 for absorbing state
 action_dim = 4
@@ -60,12 +56,9 @@ device = torch.device(args.device)
 action_repeat = 1
 num_frames = 1
 
-memory_size = args.memory_size
-max_total_steps = args.max_steps // action_repeat
+memory_size = max_total_steps = args.num_training
 
-max_episode_length = args.max_episode_length
-scheduler_period = 45
-num_evaluation_episodes = args.num_evals_per_task * num_tasks
+max_episode_length = 360
 
 buffer_settings = {
     c.KWARGS: {
@@ -84,14 +77,13 @@ buffer_settings = {
         c.CHECKPOINT_PATH: None,
     },
     c.STORAGE_TYPE: c.RAM,
-    c.STORE_NEXT_OBSERVATION: True,
+    c.BUFFER_TYPE: c.STORE_NEXT_OBSERVATION,
     c.BUFFER_WRAPPERS: [
         {
             c.WRAPPER: TorchBuffer,
             c.KWARGS: {}
         },
-    ],
-    c.LOAD_BUFFER: False,
+    ]
 }
 if args.gpu_buffer:
     buffer_settings[c.KWARGS][c.DEVICE] = device
@@ -143,21 +135,14 @@ experiment_setting = {
     },
     c.MIN_ACTION: min_action,
     c.MAX_ACTION: max_action,
-    c.MAX_EPISODE_LENGTH: max_episode_length,
     c.OBS_DIM: obs_dim,
 
     # Evaluation
-    c.EVALUATION_FREQUENCY: args.eval_freq,
+    c.EVALUATION_FREQUENCY: 1,
     c.EVALUATION_RENDER: args.render,
     c.EVALUATION_RETURNS: [],
     c.NUM_EVALUATION_EPISODES: num_evaluation_episodes,
 
-    # Exploration
-    c.EXPLORATION_STEPS: 1000,
-    c.EXPLORATION_STRATEGY: UniformContinuousAgent(min_action,
-                                                   max_action,
-                                                   np.random.RandomState(seed)),
-    
     # General
     c.DEVICE: device,
     c.SEED: seed,
@@ -166,12 +151,12 @@ experiment_setting = {
     c.LOAD_MODEL: False,
 
     # Logging
-    c.PRINT_INTERVAL: 5000,
-    c.SAVE_INTERVAL: 200000,
-    c.LOG_INTERVAL: 5000,
+    c.PRINT_INTERVAL: 1,
+    c.SAVE_INTERVAL: 1,
+    c.LOG_INTERVAL: 1,
 
     # Model
-    c.INTENTIONS_SETTING: {
+    c.MODEL_SETTING: {
         c.MODEL_ARCHITECTURE: MultiTaskFullyConnectedSquashedGaussianSAC,
         c.KWARGS: {
             c.OBS_DIM: obs_dim,
@@ -186,100 +171,37 @@ experiment_setting = {
         },
     },
 
-    c.DISCRIMINATOR_SETTING: {
-        c.MODEL_ARCHITECTURE: ActionConditionedFullyConnectedDiscriminator,
-        c.KWARGS: {
-            c.OBS_DIM: obs_dim,
-            c.ACTION_DIM: action_dim,
-            c.OUTPUT_DIM: num_tasks,
-            c.LAYERS: SAC_DISCRIMINATOR_LINEAR_LAYERS(in_dim=obs_dim + action_dim),
-            c.DEVICE: device,
-        }
-    },
-    
     c.OPTIMIZER_SETTING: {
-        c.INTENTIONS: {
-            c.OPTIMIZER: torch.optim.Adam,
+        c.POLICY: {
+            # c.OPTIMIZER: torch.optim.Adam,
+            c.OPTIMIZER: torch.optim.AdamW,  # need this for proper weight decay
             c.KWARGS: {
                 c.LR: 1e-5,
+                c.WEIGHT_DECAY: 0.01,
             },
-        },
-        c.QS: {
-            c.OPTIMIZER: torch.optim.Adam,
-            c.KWARGS: {
-                c.LR: 3e-4,
-            },
-        },
-        c.ALPHA: {
-            c.OPTIMIZER: torch.optim.Adam,
-            c.KWARGS: {
-                c.LR: 3e-4,
-            },
-        },
-        c.DISCRIMINATOR: {
-            c.OPTIMIZER: torch.optim.Adam,
-            c.KWARGS: {
-                c.LR: 3e-4,
-            },
-        },
-    },
-
-    # NOTE: This is pretty much the same as LfGP but only using main intention
-    c.SCHEDULER_SETTING: {
-        c.TRAIN: {
-            c.MODEL_ARCHITECTURE: FixedScheduler,
-            c.KWARGS: {
-                c.INTENTION_I: args.main_intention,
-                c.NUM_TASKS: num_tasks,
-            },
-            c.SCHEDULER_PERIOD: c.MAX_INT,
-        },
-        c.EVALUATION: {
-            c.MODEL_ARCHITECTURE: RecycleScheduler,
-            c.KWARGS: {
-                c.NUM_TASKS: num_tasks,
-                c.SCHEDULING: [num_evaluation_episodes // num_tasks] * num_tasks
-            },
-            c.SCHEDULER_PERIOD: c.MAX_INT,
         },
     },
 
     c.EVALUATION_PREPROCESSING: gt.Identity(),
     c.TRAIN_PREPROCESSING: gt.Identity(),
 
-    # LfGP
-    c.EXPERT_BUFFERS: expert_buffers,
-    c.DISCRIMINATOR_BATCH_SIZE: 256,
-    c.GRADIENT_PENALTY_LAMBDA: 10.,
-
-    # SAC
-    c.ACCUM_NUM_GRAD: 1,
-    c.BATCH_SIZE: 256,
-    c.BUFFER_WARMUP: 1000,
-    c.GAMMA: 0.99,
-    c.LEARN_ALPHA: True,
-    c.MAX_GRAD_NORM: 10,
-    c.NUM_GRADIENT_UPDATES: 1,
-    c.NUM_PREFETCH: 1,
-    c.REWARD_SCALING: 1.,
-    c.STEPS_BETWEEN_UPDATE: 1,
-    c.TARGET_ENTROPY: -float(action_dim),
-    c.TARGET_UPDATE_INTERVAL: 1,
-    c.TAU: 0.005,
-    c.UPDATE_NUM: 0,
-
-    # NOTE: These values do not matter for LfGP-NS
-    # SACX
-    c.AUXILIARY_REWARDS: aux_reward,
+    # BC
     c.NUM_TASKS: num_tasks,
-    c.SCHEDULER_TAU: 0.4,
-    c.MAIN_INTENTION: args.main_intention,
+    c.COEFFICIENTS: [1. for _ in range(num_tasks)],
+    c.MULTI_BC_DATASET_SIZE_REWEIGHT: True,
+    c.EXPERT_BUFFERS: expert_buffers,
+    c.ACCUM_NUM_GRAD: 1,
+    c.OPT_EPOCHS: args.num_updates,
+    c.OPT_BATCH_SIZE: args.batch_size,
+    c.MAX_GRAD_NORM: 10,
+
+    c.AUXILIARY_REWARDS: aux_reward,
 
     # Progress Tracking
     c.CUM_EPISODE_LENGTHS: [0],
     c.CURR_EPISODE: 1,
     c.NUM_UPDATES: 0,
-    c.RETURNS: [0],
+    c.RETURNS: [],
 
     # Save
     c.SAVE_PATH: save_path,
@@ -289,4 +211,4 @@ experiment_setting = {
     c.TRAIN_RENDER: False,
 }
 
-train_lfgp_sac(experiment_config=experiment_setting)
+train_multitask_bc_no_overfit(experiment_config=experiment_setting)

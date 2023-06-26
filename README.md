@@ -1,6 +1,6 @@
 # Learning from Guided Play: Improving Exploration for Adversarial Imitation Learning with Simple Auxiliary Tasks
 #### Trevor Ablett, Bryan Chan, Jonathan Kelly
-*Submitted to Robotics and Automation Letters (RA-L) with IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS'23) Option*
+*To appear in IEEE Robotics and Automation Letters (RA-L) and to be presented at the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS'23), Detroit, MI, USA, Oct. 1-5, 2023*
 
 **Paper website:** https://papers.starslab.ca/lfgp/
 

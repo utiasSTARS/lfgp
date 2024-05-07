@@ -2,6 +2,12 @@
 *.out
 results/
 lfgp_data/
+rce/exp_data
+scripts/lfebp/create_data
+
+# gail outputs
+pytorch-a2c-ppo-acktr-gail/gail_experts/data/
+pytorch-a2c-ppo-acktr-gail/scripts/eval_logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -111,3 +117,7 @@ venv.bak/
 
 # vscode
 .vscode
+
+# lfgp
+pytorch-a2c-ppo-acktr-gail/gail_experts/expert-data
+pytorch-a2c-ppo-acktr-gail/scripts/eval_logs/

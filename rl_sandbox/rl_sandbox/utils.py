@@ -1,4 +1,5 @@
 import _pickle as pickle
+import json
 import numpy as np
 import os
 import timeit
@@ -32,6 +33,12 @@ def make_summary_writer(save_path, algo, cfg):
         pickle.dump(
             cfg,
             open(f'{save_path}/{algo}_experiment_setting.pkl', 'wb'))
+        json.dump(
+            cfg,
+            open(f'{save_path}/{algo}_experiment_setting.json', 'w'),
+            indent=4,
+            default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>"
+        )
 
     return summary_writer, save_path
 

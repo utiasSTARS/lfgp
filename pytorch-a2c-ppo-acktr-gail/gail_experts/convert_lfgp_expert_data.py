@@ -5,7 +5,7 @@ import torch
 import os
 import argparse
 
-TOP_DIR="/media/starslab/users/trevor-ablett/dac-x/play_xyz/expert-data/"
+TOP_DIR=os.path.join(os.environ['LFGP_TOP_DIR'], 'play_xyz', 'expert-data')
 MID="reset/800_steps-90_sp_point5_play_open_200_extra_lasts/"
 END="int_2.gz"
 TASKS = ['stack_0', 'bring_0', 'insert_0', 'unstack_stack_env_only_0']

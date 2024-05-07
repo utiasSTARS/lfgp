@@ -106,8 +106,14 @@ def create_trajectories(args):
         args.forced_schedule = None
     else:
         intentions = make_model(config[c.INTENTIONS_SETTING])
-        intentions.load_state_dict(
-            torch.load(args.model_path, map_location='cuda:' + str(config[c.DEVICE].index))[c.INTENTIONS][c.STATE_DICT])
+        load_data_intentions = torch.load(args.model_path, map_location='cuda:' + str(config[c.DEVICE].index))[c.INTENTIONS]
+        if c.STATE_DICT in load_data_intentions:
+            intentions.load_state_dict(load_data_intentions[c.STATE_DICT])
+        elif c.STATE_DICT in load_data_intentions[c.ALGORITHM]:
+            intentions.load_state_dict(load_data_intentions[c.ALGORITHM][c.STATE_DICT])
+        else:
+            print("Something fishy going on with model loading...")
+            import ipdb; ipdb.set_trace()
 
     config[c.BUFFER_SETTING][c.STORE_NEXT_OBSERVATION] = True
     buffer_preprocessing = config[c.BUFFER_PREPROCESSING]

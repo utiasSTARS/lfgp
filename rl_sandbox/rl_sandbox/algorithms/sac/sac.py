@@ -65,6 +65,7 @@ class SAC:
             c.MAX_GRAD_NORM, c.DEFAULT_SAC_PARAMS[c.MAX_GRAD_NORM])
 
         self.train_preprocessing = algo_params[c.TRAIN_PREPROCESSING]
+        self._bootstrap_on_done = algo_params.get(c.BOOTSTRAP_ON_DONE)
 
         self._initialize_target_network()
 
@@ -104,21 +105,70 @@ class SAC:
             target_param.data.mul_(1. - self._tau)
             target_param.data.add_(param.data * self._tau)
 
-    def _compute_qs_loss(self, obss, h_states, acts, rews, dones, next_obss, discounting, lengths):
-        rews, dones, discounting = rews.to(self.device), dones.to(self.device), discounting.to(self.device)
-        _, q1_val, q2_val, next_h_states = self.model.q_vals(obss, h_states, acts, lengths=lengths)
-
+    def _calc_v_next(self, h_states, next_obss, next_h_states, n_obss, n_h_states, n_discounts):
         with torch.no_grad():
-            next_acts, next_lprobs = self.model.act_lprob(next_obss, next_h_states)
-            _, _, _, targ_next_h_states = self._target_model.q_vals(obss, h_states, acts, lengths=lengths)
-            min_q_targ, _, _, _ = self._target_model.q_vals(next_obss, targ_next_h_states, next_acts)
-            min_q_targ = min_q_targ.detach()
-            v_next = (min_q_targ - self.model.alpha.detach() * next_lprobs)
+            # this is an unnecessary forward pass, so removing
+            # _, _, _, targ_next_h_states = self._target_model.q_vals(obss, h_states, acts, lengths=lengths)
+            targ_next_h_states = h_states
+
+            if n_obss is None:
+                next_acts, next_lprobs = self.model.act_lprob(next_obss, next_h_states)
+                min_q_targ, _, _, _ = self._target_model.q_vals(next_obss, targ_next_h_states, next_acts)
+                min_q_targ = min_q_targ.detach()
+            else:
+                min_q_targ, next_lprobs = self._calc_min_q_targ_lprobs_n_step(
+                    next_obss, next_h_states, n_obss, n_h_states, n_discounts, targ_next_h_states)
+
+            if self._no_entropy_in_qloss:
+                v_next = min_q_targ
+            else:
+                v_next = (min_q_targ - self.model.alpha.detach() * next_lprobs)
 
             if hasattr(self.model, c.VALUE_RMS):
                 v_next = self.model.value_rms.unnormalize(v_next.cpu()).to(self.device)
 
-            target = rews + (self._gamma ** discounting) * (1 - dones) * v_next
+        return v_next
+
+    def _calc_min_q_targ_lprobs_n_step(self, next_obss, next_h_states, n_obss, n_h_states, n_discounts, targ_next_h_states):
+        # calculate v_next as is done in RCE paper, using nth q targ
+        with torch.no_grad():
+            all_next_obss = torch.cat([next_obss, n_obss])
+            all_next_h_states = torch.cat([next_h_states, n_h_states])
+            all_next_acts, all_next_lprobs = self.model.act_lprob(all_next_obss, all_next_h_states)
+
+            _, all_q1_targ, all_q2_targ, _ = self._target_model.q_vals(all_next_obss, targ_next_h_states, all_next_acts)
+
+            next_lprobs = all_next_lprobs[:next_obss.shape[0]]
+            n_lprobs = all_next_lprobs[next_obss.shape[0]:]
+            q1_targ_next = all_q1_targ[:next_obss.shape[0]]
+            q1_targ_n = all_q1_targ[next_obss.shape[0]:]
+            q2_targ_next = all_q2_targ[:next_obss.shape[0]]
+            q2_targ_n = all_q2_targ[next_obss.shape[0]:]
+
+            q1_targ = self.algo_params.get(c.NTH_Q_TARG_MULTIPLIER, .5) * (q1_targ_next + n_discounts * q1_targ_n)
+            q2_targ = self.algo_params.get(c.NTH_Q_TARG_MULTIPLIER, .5) * (q2_targ_next + n_discounts * q2_targ_n)
+            min_q_targ = torch.min(q1_targ, q2_targ)
+            l_probs_combined = self.algo_params.get(c.NTH_Q_TARG_MULTIPLIER, .5) * (next_lprobs + n_discounts * n_lprobs)
+
+        return min_q_targ, l_probs_combined
+
+    def _compute_qs_loss(self, obss, h_states, acts, rews, dones, next_obss, discounting, lengths,
+                         n_obss=None, n_h_states=None, n_discounts=None, discount_includes_gamma=False):
+        rews, dones, discounting = rews.to(self.device), dones.to(self.device), discounting.to(self.device)
+        _, q1_val, q2_val, next_h_states = self.model.q_vals(obss, h_states, acts, lengths=lengths)
+
+        with torch.no_grad():
+            v_next = self._calc_v_next(h_states, next_obss, next_h_states, n_obss, n_h_states, n_discounts)
+
+            if discount_includes_gamma:
+                discount = discounting
+            else:
+                discount = self._gamma * discounting
+
+            if self._bootstrap_on_done:
+                dones = torch.zeros_like(dones)
+
+            target = rews + discount * (1 - dones) * v_next
 
             if hasattr(self.model, c.VALUE_RMS):
                 target = target.cpu()
@@ -137,7 +187,7 @@ class SAC:
         with torch.no_grad():
             alpha = self.model.alpha.detach()
         pi_loss = (alpha * lprobs - min_q).sum()
-        
+
         return pi_loss
 
     def _compute_alpha_loss(self, obss, h_states, lengths):
@@ -147,24 +197,31 @@ class SAC:
 
         return alpha_loss
 
-    def update_qs(self, batch_start_idx, obss, h_states, acts, rews, dones, next_obss, next_h_states, discounting, infos, lengths, update_info):
+    def update_qs(self, batch_start_idx, obss, h_states, acts, rews, dones, next_obss, next_h_states, discounting,
+                  infos, lengths, update_info, n_obss=None, n_h_states=None, n_discounts=None, discount_includes_gamma=False):
         tic = timeit.default_timer()
+        batch_size = obss.shape[0]
+        num_samples_per_accum = batch_size // self._accum_num_grad
         self.qs_opt.zero_grad()
         total_q1_loss = 0.
         total_q2_loss = 0.
         for grad_i in range(self._accum_num_grad):
-            opt_idxes = range(batch_start_idx + grad_i * self._num_samples_per_accum,
-                              batch_start_idx + (grad_i + 1) * self._num_samples_per_accum)
-            q1_loss, q2_loss = self._compute_qs_loss(obss[opt_idxes],
-                                                     h_states[opt_idxes],
-                                                     acts[opt_idxes],
-                                                     rews[opt_idxes],
-                                                     dones[opt_idxes],
-                                                     next_obss[opt_idxes],
-                                                     discounting[opt_idxes],
-                                                     lengths[opt_idxes])
-            q1_loss /= self._batch_size
-            q2_loss /= self._batch_size
+            opt_idxes = range(batch_start_idx + grad_i * num_samples_per_accum,
+                              batch_start_idx + (grad_i + 1) * num_samples_per_accum)
+
+            if n_obss is not None:
+                n_obss_in, n_h_states_in, n_discounts_in = \
+                    n_obss[opt_idxes], n_h_states[opt_idxes], n_discounts[opt_idxes]
+            else:
+                n_obss_in, n_h_states_in, n_discounts_in = None, None, None
+
+            q1_loss, q2_loss = self._compute_qs_loss(
+                obss[opt_idxes], h_states[opt_idxes], acts[opt_idxes], rews[opt_idxes], dones[opt_idxes],
+                next_obss[opt_idxes], discounting[opt_idxes], lengths[opt_idxes], update_info,
+                n_obss_in, n_h_states_in, n_discounts_in, discount_includes_gamma)
+
+            q1_loss /= batch_size
+            q2_loss /= batch_size
             qs_loss = q1_loss + q2_loss
             total_q1_loss += q1_loss.detach().cpu()
             total_q2_loss += q2_loss.detach().cpu()
@@ -179,16 +236,15 @@ class SAC:
 
     def update_policy(self, batch_start_idx, obss, h_states, acts, rews, dones, next_obss, next_h_states, discounting, infos, lengths, update_info):
         tic = timeit.default_timer()
+        batch_size = obss.shape[0]
+        num_samples_per_accum = batch_size // self._accum_num_grad
         self.policy_opt.zero_grad()
         total_pi_loss = 0.
         for grad_i in range(self._accum_num_grad):
-            opt_idxes = range(batch_start_idx + grad_i * self._num_samples_per_accum,
-                              batch_start_idx + (grad_i + 1) * self._num_samples_per_accum)
-            pi_loss = self._compute_pi_loss(obss[opt_idxes],
-                                            h_states[opt_idxes],
-                                            acts[opt_idxes],
-                                            lengths[opt_idxes])
-            pi_loss /= self._batch_size
+            opt_idxes = range(batch_start_idx + grad_i * num_samples_per_accum,
+                              batch_start_idx + (grad_i + 1) * num_samples_per_accum)
+            pi_loss = self._compute_pi_loss(obss[opt_idxes], h_states[opt_idxes], acts[opt_idxes], lengths[opt_idxes])
+            pi_loss /= batch_size
             total_pi_loss += pi_loss.detach().cpu()
             pi_loss.backward()
         nn.utils.clip_grad_norm_(self.model.policy_parameters,
@@ -199,17 +255,19 @@ class SAC:
 
     def update_alpha(self, batch_start_idx, obss, h_states, acts, rews, dones, next_obss, next_h_states, discounting, infos, lengths, update_info):
         tic = timeit.default_timer()
+        batch_size = obss.shape[0]
+        num_samples_per_accum = batch_size // self._accum_num_grad
         self.alpha_opt.zero_grad()
         total_alpha_loss = 0.
         for grad_i in range(self._accum_num_grad):
-            opt_idxes = range(batch_start_idx + grad_i * self._num_samples_per_accum,
-                              batch_start_idx + (grad_i + 1) * self._num_samples_per_accum)
-            alpha_loss = self._compute_alpha_loss(obss[opt_idxes],
-                                                  h_states[opt_idxes],
-                                                  lengths[opt_idxes])
-            alpha_loss /= self._batch_size
+            opt_idxes = range(batch_start_idx + grad_i * num_samples_per_accum,
+                              batch_start_idx + (grad_i + 1) * num_samples_per_accum)
+
+            alpha_loss = self._compute_alpha_loss(obss[opt_idxes], h_states[opt_idxes], lengths[opt_idxes])
+            alpha_loss /= batch_size
             total_alpha_loss += alpha_loss.detach().cpu()
             alpha_loss.backward()
+
         nn.utils.clip_grad_norm_(self.model.log_alpha,
                                  self._max_grad_norm)
         self.alpha_opt.step()
@@ -242,7 +300,7 @@ class SAC:
                 tic = timeit.default_timer()
                 obss, h_states, acts, rews, dones, next_obss, next_h_states, infos, lengths = self.buffer.sample_with_next_obs(
                     self._batch_size * self._num_prefetch, next_obs, next_h_state)
-                
+
                 obss = self.train_preprocessing(obss)
                 next_obss = self.train_preprocessing(next_obss)
 

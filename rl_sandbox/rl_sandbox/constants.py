@@ -81,10 +81,12 @@ PIXELS = "pixels"
 PIXELS_ONLY = "pixels_only"
 RENDER = "render"
 SAWYER = "sawyer"
+HAND_DAPG = "hand_dapg"
 STATE = "state"
 TASK_KWARGS = "task_kwargs"
 TASK_NAME = "task_name"
 WRAPPER = "wrapper"
+STATE_DATA = "state_data"
 
 # General
 COEFFICIENTS = "coefficients"
@@ -218,6 +220,7 @@ STATE_DICT = "state_dict"
 ACTIONS = "actions"
 BUFFER = "buffer"
 BUFFER_SETTING = "buffer_setting"
+EXPERT_BUFFER_SETTING = "expert_buffer_setting"
 BUFFER_TYPE = "buffer_type"
 BUFFER_WRAPPERS = "buffer_wrappers"
 BURN_IN_WINDOW = "burn_in_window"
@@ -247,6 +250,7 @@ STORE_NEXT_OBSERVATION = "store_next_observation"
 SUBDIR_LIMIT = "subdir_limit"
 TRAJECTORY = "trajectory"
 TMP_DIR = "./tmp"
+POLICY_SWITCH_DISCONTINUITY = "policy_switch_discontinuity"
 
 # Replay Buffer Type
 BUFFER_TYPE = "buffer_type"
@@ -267,12 +271,15 @@ EXPLORATION_STRATEGY = "exploration_strategy"
 GAMMA = "gamma"
 MAX_TOTAL_STEPS = "max_total_steps"
 N_STEP = "n_step"
+N_STEP_MODE = "n_step_mode"
+NTH_Q_TARG_MULTIPLIER = "nth_q_targ_multiplier"
 NUM_EPISODES = "num_episodes"
 NUM_ITERS = "num_iters"
 NUM_STEPS = "num_steps"
 POLICY = "policy"
 RETURNS = "returns"
 VALUE = "value"
+BOOTSTRAP_ON_DONE = "bootstrap_on_done"
 
 # RL transition tuple
 ACTION = "action"
@@ -298,6 +305,7 @@ STANDARD_DEVIATION = "standard_deviation"
 DISK = "disk"
 RAM = "ram"
 GPU = "gpu"
+NSTEP_GPU = "nstep_gpu"
 
 # Testing
 PUSH_TIME = "push_time"
@@ -317,6 +325,8 @@ SAMPLE_TIME = "sample_time"
 SAVE_PATH = "save_path"
 POLICY_UPDATE_TIME = "policy_update_time"
 Q_UPDATE_TIME = "q_update_time"
+AGENT_UPDATE_TIME = "agent_update_time"
+ENV_SAMPLE_TIME = "env_sample_time"
 TARGET_UPDATE_TIME = "target_update_time"
 UPDATE_INFO = "update_info"
 
@@ -354,6 +364,7 @@ EVALUATION_SUCCESSES_ALL_TASKS = "evaluation_successes_all_tasks"
 NUM_EVALUATION_EPISODES = "num_evaluation_episodes"
 EVALUATION_REWARD_FUNC = "evaluation_reward_func"
 AVERAGE_MULTITASK_RETURNS = "average_multitask_returns"
+EVALUATION_STOCHASTIC = "evaluation_stochastic"
 
 # ========================================================================
 # Training algorithms
@@ -383,11 +394,18 @@ POP_SIZE = "pop_size"
 CREATE_ABSORBING_STATE = "create_absorbing_state"
 DISCRIMINATOR_BATCH_SIZE = "discriminator_batch_size"
 DISCRIMINATOR_REWARD = "discriminator_reward"
+DISCRIMINATOR_MAX = "discriminator_max"
+DISCRIMINATOR_MIN = "discriminator_min"
 DISCRIMINATOR_SAMPLE_TIME = "discriminator_sample_time"
 DISCRIMINATOR_NUM_UPDATES = "discriminator_num_updates"
 DISCRIMINATOR_EXPBUF_LAST_SAMPLE_PROP = "discriminator_expbuf_last_sample_prop"
+DISCRIMINATOR_OBS_ONLY = "discriminator_obs_only"
 EXPERT_BUFFER = "expert_buffer"
 EXPERT_BUFFERS = "expert_buffers"
+FT_EXPERT_BUFFER = "ft_expert_buffer"
+FT_EXPERT_BUFFERS = "ft_expert_buffers"
+EXPERT_AMOUNTS = "expert_amounts"
+EXPERT_AMOUNT = "expert_amount"
 EXPERT_SETTING = "expert_setting"
 EXPERT_BUFFER_SUBSAMPLING = "expert_buffer_subsampling"
 GAN_LOSS = "gan_loss"
@@ -395,11 +413,50 @@ GP_LOSS = "gp_loss"
 GRADIENT_PENALTY_LAMBDA = "gradient_penalty_lambda"
 EXPERT_BUFFER_MODEL_SAMPLE_RATE = "expert_buffer_model_sample_rate"
 EXPERT_BUFFER_MODEL_SAMPLE_DECAY = "expert_buffer_model_sample_decay"
-EXPERT_BUFFER_MODEL_SHARE_ALL = "expert_buffer_model_share_all"
+EXPERT_BUFFER_CRITIC_SHARE_ALL = "expert_buffer_critic_share_all"
+EXPERT_BUFFER_POLICY_SHARE_ALL = "expert_buffer_policy_share_all"
+EXPERT_BUFFER_SIZE_TYPE = "expert_buffer_size_type"
+EXPERT_BUFFER_MODEL_NO_POLICY = "expert_buffer_model_no_policy"
+OBS_ONLY = "obs_only"
+EXPERT_DATA_MODE = "expert_data_mode"
+EXPONENTIAL_SAMPLING_MED_MULT = "exponential_sampling_med_mult"
+EXPONENTIAL_SAMPLING_MED_FIXED = "exponential_sampling_med_fixed"
+EXPONENTIAL_SAMPLING_METHOD = "exponential_sampling_method"
+EXPONENTIAL_SAMPLING_PARAM = "exponential_sampling_param"
+EXPONENTIAL_UNIFORM_PROP = "exponential_uniform_prop"
+OBS_DIM_DISC_IGNORE = "obs_dim_disc_ignore"
+ACTIVATION = "activation"
+REW_MIN_ZERO = "rew_min_zero"
+RMZ_NUM_MED_FILT = "rmz_num_med_filt"
+
+# SQIL/RCE
+REWARD_MODEL = "reward_model"
+SQIL = "sqil"
+SPARSE = "sparse"
+SQIL_RCE_BOOTSTRAP_EXPERT_MODE = "sqil_rce_bootstrap_expert_mode"
+NO_ENTROPY_IN_QLOSS = "no_entropy_in_qloss"
+CLASSIFIER_OUTPUT = "classifier_output"
+RCE_EPS = "rce_eps"
+AVG_EXPERT_Q = "avg_expert_q"
+MAX_EXPERT_Q = "max_expert_q"
+AVG_POLICY_Q = "avg_policy_q"
+AVG_DONE_Q = "avg_done_q"
+MAX_POLICY_Q = "max_policy_q"
+Q_OVER_MAX_PENALTY = "q_over_max_penalty"
+QOMP_NUM_MED_FILT = "qomp_num_med_filt"
+QOMP_POLICY_MAX_TYPE = "qomp_policy_max_type"
+Q_EXPERT_TARGET_MODE = "q_expert_target_mode"
+NOISE_ZERO_TARGET_MODE = "noise_zero_target_mode"
+NZT_PER_OBS_SCALE = "nzt_per_obs_scale"
+EXPERT_CRITIC_WEIGHT = "expert_critic_weight"
+SQIL_POLICY_REWARD_LABEL = "sqil_policy_reward_label"
 
 # LfGP
 MAIN_TASK = "main_task"
 HANDCRAFT_REWARDS = "handcraft_rewards"
+TASK_SHARED_LAYERS_ONLY = "task_shared_layers_only"
+MAIN_TASK_LOSS_WEIGHT = "main_task_loss_weight"
+NUM_EXTRA_HIDDEN = "num_extra_hidden"
 
 # DIAYN
 DISCRIMINATOR = "discriminator"
@@ -512,6 +569,12 @@ TARGET_ENTROPY = "target_entropy"
 MAGNITUDE_PENALTY_MULTIPLIER = "magnitude_penalty_multiplier"
 MAGNITUDE_MAX = "magnitude_max"
 MAGNITUDE_FOLLOW_AVERAGE = "magnitude_follow_average"
+ACTOR_RAW_MAGNITUDE_PENALTY = "actor_raw_magnitude_penalty"
+
+# TD3/DDPG
+POLICY_STDDEV = "policy_stddev"
+TARGET_STDDEV = "target_stddev"
+TARGET_STDDEV_CLIP = "target_stddev_clip"
 
 # SAC-X
 AUXILIARY_REWARDS = "auxiliary_rewards"
@@ -753,7 +816,8 @@ VALID_ENV_TYPE = (DM_CONTROL,
                   GYM,
                   GYM_THING,
                   MANIPULATOR_LEARNING,
-                  SAWYER)
+                  SAWYER,
+                  HAND_DAPG)
 
 VALID_DISCRIMINATOR = (GAUSSIAN,)
 

@@ -1,6 +1,8 @@
 import gzip
 import _pickle as pickle
 import torch
+import json
+import os
 
 import rl_sandbox.constants as c
 
@@ -17,6 +19,7 @@ from rl_sandbox.learning_utils import train
 from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.transforms.general_transforms import Identity
 from rl_sandbox.utils import make_summary_writer, set_seed
+from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
 
 
 def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers=False):
@@ -39,7 +42,7 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
     load_transfer_exp_settings = experiment_config.get(c.LOAD_TRANSFER_EXP_SETTINGS, False)
     load_model = experiment_config.get(c.LOAD_MODEL, False)
 
-    if load_transfer_exp_settings:
+    if load_transfer_exp_settings and load_model:
         from rl_sandbox.train.transfer import load_and_transfer
         old_config = load_and_transfer(load_transfer_exp_settings, load_model, intentions, buffer,
                                        experiment_config, experiment_config[c.DEVICE].index, discriminator)
@@ -54,20 +57,31 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
            (c.HANDCRAFT_REWARDS in experiment_config[c.DISCRIMINATOR_SETTING][c.KWARGS].keys() and
            experiment_config[c.NUM_TASKS] == len(experiment_config[c.EXPERT_BUFFERS]) +
             len(experiment_config[c.DISCRIMINATOR_SETTING][c.KWARGS][c.HANDCRAFT_REWARDS]))
+
+    frame_stack = 1
+    for wrap_dict in experiment_config[c.ENV_SETTING][c.ENV_WRAPPERS]:
+        if wrap_dict[c.WRAPPER] == FrameStackWrapper:
+            frame_stack = wrap_dict[c.KWARGS][c.NUM_FRAMES]
+
     expert_buffers = []
+
+    # handle old code with old expert buffer options
+    expert_amounts = experiment_config.get(c.EXPERT_AMOUNTS, [None] * experiment_config[c.NUM_TASKS])
     if not no_expert_buffers:
-        for load_path in experiment_config[c.EXPERT_BUFFERS]:
-            # drop memory size for expert buffers to only what is needed
-            with gzip.open(load_path, "rb") as f:
-                data = pickle.load(f)
-                experiment_config[c.BUFFER_SETTING][c.KWARGS][c.MEMORY_SIZE] = data[c.MEMORY_SIZE]
+        expert_buffer_settings = experiment_config.get(c.EXPERT_BUFFER_SETTING, experiment_config[c.BUFFER_SETTING])
 
-            expert_buffers.append(make_buffer(experiment_config[c.BUFFER_SETTING], seed, load_path))
+    if not no_expert_buffers:
+        for load_path, amount in zip(experiment_config[c.EXPERT_BUFFERS], expert_amounts):
+            expert_buffers.append(make_buffer(expert_buffer_settings, seed, load_path, end_idx=amount,
+                                              match_load_size=True, frame_stack_load=frame_stack))
 
-    if experiment_config.get(c.EXPERT_BUFFER_MODEL_SAMPLE_RATE, 0.) > 0:
-        e_buffer_arg = expert_buffers
-    else:
-        e_buffer_arg = None
+    if c.FT_EXPERT_BUFFERS in experiment_config:
+        ft_expert_buffers = []
+        for load_path, amount in zip(experiment_config[c.FT_EXPERT_BUFFERS], expert_amounts):
+            ft_expert_buffers.append(make_buffer(expert_buffer_settings, seed, load_path, end_idx=amount,
+                                                 match_load_size=True, frame_stack_load=frame_stack))
+        for buf_i in range(len(expert_buffers)):
+            expert_buffers[buf_i].merge(ft_expert_buffers[buf_i])
 
     sac_intentions = UpdateSACDACIntentions(model=intentions,
                                             policy_opt=policy_opt,
@@ -77,7 +91,7 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                                             buffer=buffer,
                                             algo_params=experiment_config,
                                             aux_tasks=aux_tasks,
-                                            expert_buffers=e_buffer_arg)
+                                            expert_buffers=expert_buffers)
 
     discriminator_opt = make_optimizer(discriminator.parameters(), experiment_config[c.OPTIMIZER_SETTING][c.DISCRIMINATOR])
     update_intentions = UpdateDACIntentions(discriminator=discriminator,
@@ -117,7 +131,11 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
         summary_writer, save_path = make_summary_writer(save_path=save_path, algo=c.LFGP_NS if isinstance(scheduler, FixedScheduler) else c.LFGP, cfg=experiment_config)
 
     if load_transfer_exp_settings:
+        if not load_model:
+            from rl_sandbox.train.transfer import load_settings
+            old_config = load_settings(load_transfer_exp_settings)
         from rl_sandbox.train.transfer import transfer_pretrain
+        import ipdb; ipdb.set_trace()
         transfer_pretrain(learning_algorithm, experiment_config, old_config, update_intentions)
 
     if return_agent_only:

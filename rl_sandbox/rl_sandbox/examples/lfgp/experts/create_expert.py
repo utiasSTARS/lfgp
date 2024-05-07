@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, required=True, help="Random seed")
 parser.add_argument('--include_main', action='store_true', default=False,
                     help="Include main task as an aux (i.e. actual sparse or dense env reward).")
-parser.add_argument('--user_machine', type=str, default='local', help="Representative string for user and machine")
+parser.add_argument('--top_save_path', type=str, default='results', help="Top save path to save results")
 parser.add_argument('--exp_name', type=str, default="", help="Experiment name")
 parser.add_argument('--main_task', type=str, default="stack_01", help="Main task (for play environment)")
 parser.add_argument('--device', type=str, default="cpu", help="device to use")
@@ -52,7 +52,7 @@ args = parser.parse_args()
 
 seed = args.seed
 
-save_path = exp_utils.get_save_path('sac-x', args.main_task, args.seed, args.exp_name, args.user_machine)
+save_path = exp_utils.get_save_path('sac-x', args.main_task, args.seed, args.exp_name, args.top_save_path)
 
 load_model, load_buffer, load_transfer_exp_settings, load_aux_old_removal = transfer.get_transfer_params(
     args.load_existing_dir, args.load_model, args.load_buffer, args.load_transfer_exp_settings, args.load_aux_old_removal)
@@ -206,7 +206,7 @@ experiment_setting = {
     c.EXPLORATION_STRATEGY: UniformContinuousAgent(min_action,
                                                    max_action,
                                                    np.random.RandomState(seed)),
-    
+
     # General
     c.DEVICE: device,
     c.SEED: seed,
@@ -237,7 +237,7 @@ experiment_setting = {
             c.BRANCHED_OUTPUTS: True
         },
     },
-    
+
     c.OPTIMIZER_SETTING: {
         c.INTENTIONS: {
             c.OPTIMIZER: torch.optim.Adam,
@@ -310,7 +310,6 @@ experiment_setting = {
     c.TRAIN_RENDER: args.render,
 }
 
-if args.user_machine == 'trevor_cc':
-    experiment_setting[c.ENV_SETTING][c.KWARGS]["egl"] = False  # specifically needed for graham and beluga for some reason
+exp_utils.config_check(experiment_setting, args.top_save_path)
 
 train_sacx_sac(experiment_config=experiment_setting)

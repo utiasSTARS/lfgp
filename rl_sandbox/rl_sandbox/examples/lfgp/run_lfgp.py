@@ -16,7 +16,8 @@ from rl_sandbox.buffers.wrappers.torch_buffer import TorchBuffer
 from rl_sandbox.envs.wrappers.action_repeat import ActionRepeatWrapper
 from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
-from rl_sandbox.model_architectures.actor_critics.fully_connected_soft_actor_critic import MultiTaskFullyConnectedSquashedGaussianSAC
+from rl_sandbox.model_architectures.actor_critics.fully_connected_soft_actor_critic import \
+    MultiTaskFullyConnectedSquashedGaussianSAC, MultiTaskFullyConnectedSquashedGaussianTD3
 from rl_sandbox.model_architectures.discriminators.fully_connected_discriminators import ActionConditionedFullyConnectedDiscriminator
 from rl_sandbox.model_architectures.layers_definition import VALUE_BASED_LINEAR_LAYERS, SAC_DISCRIMINATOR_LINEAR_LAYERS
 from rl_sandbox.train.train_lfgp_sac import train_lfgp_sac
@@ -26,18 +27,30 @@ def str2tuple(v):
     return tuple([item for item in v.split(',')] if v else [])
 
 parser = argparse.ArgumentParser()
+
+# RL
 parser.add_argument('--seed', type=int, required=True, help="Random seed")
-parser.add_argument('--user_machine', type=str, default='local', help="Representative string for user and machine")
-parser.add_argument('--expert_paths', type=str2tuple, required=True, help="Comma-separated list of strings corresponding to the expert buffer files")
-parser.add_argument('--exp_name', type=str, default="", help="String corresponding to the experiment name")
-parser.add_argument('--main_task', type=str, default="stack_01", help="Main task (for play environment)")
 parser.add_argument('--device', type=str, default="cpu", help="device to use")
 parser.add_argument('--render', action='store_true', default=False, help="Render training")
 parser.add_argument('--max_steps', type=int, default=2000000, help="Number of steps to interact with")
 parser.add_argument('--memory_size', type=int, default=4000000, help="Memory size of buffer")
 parser.add_argument('--eval_freq', type=int, default=100000, help="The frequency of evaluating the performance of the current policy")
 parser.add_argument('--num_evals_per_task', type=int, default=50, help="Number of evaluation episodes per task")
+parser.add_argument('--log_interval', type=int, default=5000, help="Log interval for tensorboard.")
+parser.add_argument('--buffer_warmup', type=int, default=25000, help="Buffer warmup before starting training.")
+parser.add_argument('--exploration_steps', type=int, default=50000, help="Steps to use random instead of learned policy.")
+parser.add_argument('--no_bootstrap_on_done', action="store_true", help="If set, use dones to prevent bootstrapping on timeouts.")
+parser.add_argument('--no_entropy_in_qloss', action="store_true", help="If set, remove entropy from q loss.")
+parser.add_argument('--debug_run', action="store_true", help="Drop log interval, buffer warmup, and exploration steps for debugging")
+
+# env
+parser.add_argument('--main_task', type=str, default="stack_01", help="Main task (for play environment)")
 parser.add_argument('--main_intention', type=int, default=2, help="The main intention index")
+
+# data
+parser.add_argument('--top_save_path', type=str, default='results', help="Top directory for saving results")
+parser.add_argument('--expert_paths', type=str2tuple, required=True, help="Comma-separated list of strings corresponding to the expert buffer files")
+parser.add_argument('--exp_name', type=str, default="", help="String corresponding to the experiment name")
 parser.add_argument('--load_existing_dir', type=str, default="", help="dir with existing model, buffer, and exp settings.")
 parser.add_argument('--load_model', type=str, default="", help="Path for model to be loaded")
 parser.add_argument('--load_buffer', type=str, default="", help="Path for buffer to be loaded")
@@ -48,6 +61,14 @@ parser.add_argument('--load_max_buffer_index', type=int, required=False, help="I
 parser.add_argument('--load_aux_old_removal', type=str, required=False, default="",
                      help="comma sep list of aux tasks from old model to ignore for transfer.")
 parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
+
+# n step
+parser.add_argument('--n_step', type=int, default=1, help="If greater than 1, add an n-step loss to the q updates.")
+parser.add_argument('--n_step_mode', type=str, default="n_rew_only",
+                    help="N-step modes: options are: [n_rew_only, sum_pad, nth_q_targ].")
+parser.add_argument('--nth_q_targ_multiplier', type=float, default=.5, help="applies to nth_q_targ n_step, .5 is value used in RCE.")
+
+# lfgp/discriminator
 parser.add_argument('--scheduler', type=str, default="wrs_plus_handcraft",
     help="Options: [wrs_plus_handcraft (default), wrs, learned, no_sched].")
 parser.add_argument('--expbuf_last_sample_prop', type=float, default=0.95,
@@ -55,10 +76,34 @@ parser.add_argument('--expbuf_last_sample_prop', type=float, default=0.95,
           means regular sampling.")
 parser.add_argument('--expbuf_model_sample_rate', type=float, default=0.1,
     help="Proportion of mini-batch samples that should be expert samples for q/policy training.")
+parser.add_argument('--expbuf_critic_share_type', type=str, default='share',
+    help="Whether all critics learn from all expert buffers or from only their own. Options: [share, no_share]")
+parser.add_argument('--expbuf_policy_share_type', type=str, default='share',
+    help="Whether all policies learn from all expert buffers or from only their own. Options: [share, no_share]")
+parser.add_argument('--expbuf_model_train_mode', type=str, default='both',
+    help="Whether expert data trains the critic, or both the actor and critic. Options: [both, critic_only]")
 parser.add_argument('--expbuf_model_sample_decay', type=float, default=0.99999,
-    help="Decay rate for expbuf_model_sample_rate.")
+    help="Decay rate for expbuf_model_sample_rate. .99999 brings close to 0 at 1M.")
+parser.add_argument('--actor_raw_magnitude_penalty', type=float, default=0.0, help="L2 penalty on raw action (before tanh).")
+parser.add_argument('--expert_data_mode', type=str, default="obs_act", help="options are [obs_act, obs_only, obs_only_no_next].")
+parser.add_argument('--reward_model', type=str, default="discriminator", help="Options: [discriminator, sqil, rce]")
+parser.add_argument('--sqil_rce_bootstrap_expert_mode', type=str, default="no_boot",
+                    help="If boot, sqil and rce bootstrap on expert dones (unlike RCE implementation). no_boot"\
+                         " means no bootstrapping on expert dones (but bootstrapping on non-expert handled by no_bootstrap_on_done)")
+parser.add_argument('--q_type', type=str, default="raw", help="Options: [raw, classifier]")
+
 
 args = parser.parse_args()
+
+# make original lfgp readme consistent
+if args.top_save_path == 'local': args.top_save_path = 'results'
+
+# input sizes never change so this can/should give large speedup
+torch.backends.cudnn.benchmark=True
+
+if args.debug_run:
+    args.buffer_warmup = 500
+    args.exploration_steps = 1000
 
 seed = args.seed
 
@@ -68,7 +113,7 @@ if args.scheduler == "wrs_plus_handcraft" or args.scheduler == "wrs":
 else:
     exp_name_dir = "lfgp_" + str(args.scheduler)
 
-save_path = exp_utils.get_save_path(exp_name_dir, args.main_task, args.seed, args.exp_name, args.user_machine)
+save_path = exp_utils.get_save_path(exp_name_dir, args.main_task, args.seed, args.exp_name, args.top_save_path)
 
 load_model, load_buffer, load_transfer_exp_settings, load_aux_old_removal = transfer.get_transfer_params(
     args.load_existing_dir, args.load_model, args.load_buffer, args.load_transfer_exp_settings, args.load_aux_old_removal)
@@ -107,13 +152,15 @@ buffer_settings = {
                     c.VARIANCE: ((action_dim,), np.float32),
                     c.ENTROPY: ((action_dim,), np.float32),
                     c.LOG_PROB: ((1,), np.float32),
+                    c.DISCOUNTING: ((1,), np.float32),
                     c.VALUE: ((1,), np.float32),
-                    c.DISCOUNTING: ((1,), np.float32)},
+                    c.HIGH_LEVEL_ACTION: ((1,), np.float32)},
         c.CHECKPOINT_INTERVAL: 0,
         c.CHECKPOINT_PATH: None,
+        c.POLICY_SWITCH_DISCONTINUITY: False if args.n_step is None else True
     },
     c.STORAGE_TYPE: c.RAM,
-    c.BUFFER_TYPE: c.STORE_NEXT_OBSERVATION,
+    c.BUFFER_TYPE: c.STORE_NEXT_OBSERVATION if args.n_step is None else c.TRAJECTORY,
     c.BUFFER_WRAPPERS: [
         {
             c.WRAPPER: TorchBuffer,
@@ -122,11 +169,21 @@ buffer_settings = {
     ],
     c.LOAD_BUFFER: load_buffer,
 }
+
+if args.n_step:
+    buffer_settings[c.KWARGS][c.N_STEP] = args.n_step
+
 if args.gpu_buffer:
     buffer_settings[c.KWARGS][c.DEVICE] = device
-    buffer_settings[c.STORAGE_TYPE] = c.GPU
+    if args.n_step is None:
+        buffer_settings[c.STORAGE_TYPE] = c.GPU
+    else:
+        buffer_settings[c.STORAGE_TYPE] = c.NSTEP_GPU
     buffer_settings[c.BUFFER_WRAPPERS] = []
 
+# with no bootstrap on done, we have to remove final transitions, or things break
+if args.no_bootstrap_on_done and args.n_step is not None:
+    buffer_settings[c.KWARGS]["remove_final_transitions"] = True
 
 # set scheduler
 if args.scheduler == "wrs_plus_handcraft":
@@ -197,6 +254,65 @@ elif args.scheduler == "no_sched":
 else:
     raise NotImplementedError(f"LfGP not implemented for scheduler selection {args.scheduler}")
 
+# discriminator obs only
+disc_action_dim = 0 if 'obs_only' in args.expert_data_mode else action_dim
+
+
+# TODO probably makes sense to remove these things once we know the configurations that work
+# automatically set things for RCE and SQIL
+if args.reward_model in ['sqil', 'rce']:
+    if args.expbuf_model_sample_rate != 0.5:
+        print('------------------')
+        print(f"WARNING: Reward model {args.reward_model} but requested exp buf model rate of "\
+              f"{args.expbuf_model_sample_rate}, setting to 0.5.")
+        args.expbuf_model_sample_rate = 0.5
+        print('------------------')
+    if args.expbuf_model_sample_decay != 1.0:
+        print('------------------')
+        print(f"WARNING: Reward model {args.reward_model} but requested exp buf model decay of "\
+              f"{args.expbuf_model_sample_decay}, setting to 1.0.")
+        args.expbuf_model_sample_decay = 1.0
+        print('------------------')
+    if not args.no_entropy_in_qloss:
+        print('------------------')
+        print(f"WARNING: Entropy in q loss is set to on, turning off to match RCE.")
+        args.no_entropy_in_qloss = True
+        print('------------------')
+    # if args.expbuf_critic_share_type != "no_share":
+    #     print('------------------')
+    #     print(f"WARNING: Expert buffer sampling should not be shared between tasks for RCE/SQIL. Setting to no_share.")
+    #     args.expbuf_critic_share_type = "no_share"
+    #     print('------------------')
+    # if args.expbuf_policy_share_type != "no_share":
+    #     print('------------------')
+    #     print(f"WARNING: Expert buffer sampling should not be shared between tasks for RCE/SQIL. Setting to no_share.")
+    #     args.expbuf_policy_share_type = "no_share"
+    #     print('------------------')
+    if args.expbuf_model_train_mode != "critic_only":
+        print('------------------')
+        print(f"WARNING: Expert buffer sampling should only train critic for RCE/SQIL. Setting to critic_only.")
+        args.expbuf_model_train_mode = "critic_only"
+        print('------------------')
+
+if args.reward_model == 'rce':
+    if args.q_type != "classifier":
+        print('------------------')
+        print(f"WARNING: Q type not set as classifier, setting to classifier to match RCE.")
+        args.q_type = "classifier"
+        print('------------------')
+    if args.sqil_rce_bootstrap_expert_mode == 'boot':
+        print('------------------')
+        print(f"WARNING: sqil_rce_bootstrap_expert_mode set to 'boot', setting to 'no_boot' to match RCE settings.")
+        args.sqil_rce_bootstrap_expert_mode = 'no_boot'
+        print('------------------')
+
+if args.q_type == 'classifier' and not args.no_entropy_in_qloss:
+    print('------------------')
+    print(f"WARNING: classifier q_type set, turning off entropy in qloss.")
+    args.no_entropy_in_qloss = True
+    print('------------------')
+
+
 experiment_setting = {
     # Auxiliary Tasks
     c.AUXILIARY_TASKS: {},
@@ -252,7 +368,7 @@ experiment_setting = {
     c.NUM_EVALUATION_EPISODES: num_evaluation_episodes,
 
     # Exploration
-    c.EXPLORATION_STEPS: 50000,
+    c.EXPLORATION_STEPS: args.exploration_steps,
     c.EXPLORATION_STRATEGY: UniformContinuousAgent(min_action,
                                                    max_action,
                                                    np.random.RandomState(seed)),
@@ -272,22 +388,25 @@ experiment_setting = {
     # Logging
     c.PRINT_INTERVAL: 5000,
     c.SAVE_INTERVAL: 200000,
-    c.LOG_INTERVAL: 5000,  # now tensorboard won't load so slow
-    # c.LOG_INTERVAL: 100,
+    c.LOG_INTERVAL: args.log_interval,
 
     # Model
     c.INTENTIONS_SETTING: {
         c.MODEL_ARCHITECTURE: MultiTaskFullyConnectedSquashedGaussianSAC,
+        # c.MODEL_ARCHITECTURE: MultiTaskFullyConnectedSquashedGaussianTD3,
         c.KWARGS: {
             c.OBS_DIM: obs_dim,
             c.TASK_DIM: num_tasks,
             c.ACTION_DIM: action_dim,
             c.SHARED_LAYERS: VALUE_BASED_LINEAR_LAYERS(in_dim=obs_dim),
-            c.INITIAL_ALPHA: .01,
+            c.INITIAL_ALPHA: .01,  # for SAC only
+            # c.POLICY_STDDEV: .7,  # for TD3 only
+            # c.POLICY_STDDEV: [.7, .7, .7, .2],  # for TD3 only, per action dimension
             c.DEVICE: device,
             c.NORMALIZE_OBS: False,
             c.NORMALIZE_VALUE: False,
-            c.BRANCHED_OUTPUTS: True
+            c.BRANCHED_OUTPUTS: True,
+            c.CLASSIFIER_OUTPUT: args.q_type == 'classifier',
         },
     },
 
@@ -295,10 +414,11 @@ experiment_setting = {
         c.MODEL_ARCHITECTURE: ActionConditionedFullyConnectedDiscriminator,
         c.KWARGS: {
             c.OBS_DIM: obs_dim,
-            c.ACTION_DIM: action_dim,
+            c.ACTION_DIM: disc_action_dim,
             c.OUTPUT_DIM: num_tasks,
-            c.LAYERS: SAC_DISCRIMINATOR_LINEAR_LAYERS(in_dim=obs_dim + action_dim),
+            c.LAYERS: SAC_DISCRIMINATOR_LINEAR_LAYERS(in_dim=obs_dim + disc_action_dim),
             c.DEVICE: device,
+            c.OBS_ONLY: 'obs_only' in args.expert_data_mode,
         }
     },
 
@@ -356,12 +476,15 @@ experiment_setting = {
     c.DISCRIMINATOR_EXPBUF_LAST_SAMPLE_PROP: args.expbuf_last_sample_prop,
     c.EXPERT_BUFFER_MODEL_SAMPLE_RATE: args.expbuf_model_sample_rate,
     c.EXPERT_BUFFER_MODEL_SAMPLE_DECAY: args.expbuf_model_sample_decay,
-    c.EXPERT_BUFFER_MODEL_SHARE_ALL: True,  # all expert data used for all tasks..not yet implemented for False
+    c.EXPERT_BUFFER_CRITIC_SHARE_ALL: args.expbuf_critic_share_type == 'share',  # all expert data used for all tasks w/ critic
+    c.EXPERT_BUFFER_POLICY_SHARE_ALL: args.expbuf_policy_share_type == 'share',  # all expert data used for all tasks w/ policy
+    c.EXPERT_BUFFER_MODEL_NO_POLICY: args.expbuf_model_train_mode == 'critic_only',
+    c.REWARD_MODEL: args.reward_model,
 
     # SAC
     c.ACCUM_NUM_GRAD: 1,
     c.BATCH_SIZE: 256,
-    c.BUFFER_WARMUP: 25000,
+    c.BUFFER_WARMUP: args.buffer_warmup,
     c.GAMMA: 0.99,
     c.LEARN_ALPHA: True,
     c.MAX_GRAD_NORM: 10,
@@ -373,6 +496,14 @@ experiment_setting = {
     c.TARGET_UPDATE_INTERVAL: 1,
     c.TAU: 0.0001,
     c.UPDATE_NUM: 0,
+    c.N_STEP: args.n_step,
+    c.N_STEP_MODE: args.n_step_mode,
+    c.NTH_Q_TARG_MULTIPLIER: args.nth_q_targ_multiplier,
+    c.ACTOR_RAW_MAGNITUDE_PENALTY: args.actor_raw_magnitude_penalty,  # 0.0 to turn off
+    c.BOOTSTRAP_ON_DONE: not args.no_bootstrap_on_done,
+    c.EXPERT_DATA_MODE: args.expert_data_mode,
+    c.SQIL_RCE_BOOTSTRAP_EXPERT_MODE: args.sqil_rce_bootstrap_expert_mode,
+    c.NO_ENTROPY_IN_QLOSS: args.no_entropy_in_qloss,
 
     # SACX
     c.AUXILIARY_REWARDS: aux_reward,
@@ -394,6 +525,6 @@ experiment_setting = {
     c.TRAIN_RENDER: False,
 }
 
-exp_utils.config_check(experiment_setting, args.user_machine)
+exp_utils.config_check(experiment_setting, args.top_save_path)
 
 train_lfgp_sac(experiment_config=experiment_setting)

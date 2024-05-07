@@ -22,7 +22,7 @@ def str2tuple(v):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, required=True, help="Random seed")
-parser.add_argument('--user_machine', type=str, default='local', help="Representative string for user and machine")
+parser.add_argument('--top_save_path', type=str, default='results', help="Top directory for saving results")
 parser.add_argument('--expert_paths', type=str2tuple, required=True, help="Comma-separated list of strings corresponding to the expert buffer files")
 parser.add_argument('--exp_name', type=str, default="", help="String corresponding to the experiment name")
 parser.add_argument('--main_task', type=str, default="stack_01", help="Main task (for play environment)")
@@ -35,9 +35,13 @@ parser.add_argument('--num_evals_per_task', type=int, default=50, help="Number o
 parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
 args = parser.parse_args()
 
+
+# make original lfgp readme consistent
+if args.top_save_path == 'local': args.top_save_path = 'results'
+
 seed = args.seed
 
-save_path = exp_utils.get_save_path(c.MULTITASK_BC, args.main_task, args.seed, args.exp_name, args.user_machine)
+save_path = exp_utils.get_save_path(c.MULTITASK_BC, args.main_task, args.seed, args.exp_name, args.top_save_path)
 
 for expert_path in args.expert_paths:
     assert os.path.isfile(expert_path), "File {} does not exist".format(expert_path)

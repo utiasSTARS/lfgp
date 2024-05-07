@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import functools
 import timeit
+import pickle
 from torch.multiprocessing import Pool
 
 import rl_sandbox.constants as c
@@ -14,6 +15,11 @@ from rl_sandbox.model_architectures.actor_critics.fully_connected_soft_actor_cri
 from rl_sandbox.examples.eval_tools.utils import load_model
 
 
+def load_settings(config_path):
+    with open(config_path, "rb") as f:
+        config = pickle.load(f)
+    return config
+
 def load_and_transfer(load_transfer_exp_settings, load_model_file, intentions, buffer, experiment_config, device,
                       discriminator=None):
     if discriminator is not None:
@@ -23,7 +29,7 @@ def load_and_transfer(load_transfer_exp_settings, load_model_file, intentions, b
         old_config, _, old_agent = load_model(0, load_transfer_exp_settings, load_model_file, include_env=False,
                                                 device=device)
         old_discriminator = None
-    transfer_existing_weights(old_agent.model, old_config, intentions, experiment_config, 
+    transfer_existing_weights(old_agent.model, old_config, intentions, experiment_config,
                               old_discriminator, discriminator)
 
     buffer = transfer_existing_buffer(buffer, old_config, experiment_config)
@@ -175,7 +181,7 @@ def transfer_existing_buffer(buffer, old_config, new_config):
 
                 with Pool(processes=12) as pool:
                     new_task_rewards = np.array(pool.map(
-                        functools.partial(get_new_reward, rf, obss.shape[-1]), 
+                        functools.partial(get_new_reward, rf, obss.shape[-1]),
                         np.concatenate([obss.squeeze(), acts], -1)))
                 new_rewards[:actual_buffer._count, new_i] = new_task_rewards
 

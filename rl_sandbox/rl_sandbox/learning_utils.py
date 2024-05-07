@@ -60,14 +60,6 @@ def buffer_warmup(agent,
         info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, 1)
         info.update(act_info)
 
-        # buffer.push(**transition_preprocess(curr_obs,
-        #                                     curr_h_state,
-        #                                     action,
-        #                                     reward,
-        #                                     done,
-        #                                     info,
-        #                                     next_obs=next_obs,
-        #                                     next_h_state=next_h_state))
         buffer.push(curr_obs,
                     curr_h_state,
                     action,
@@ -102,7 +94,6 @@ def train(agent,
           auxiliary_reward=lambda reward, **kwargs: np.array([reward]),
           summary_writer=DummySummaryWriter(),
           save_path=None):
-
     if auxiliary_reward is None:
         auxiliary_reward = lambda reward, **kwargs: np.array([reward])
 
@@ -147,6 +138,7 @@ def train(agent,
         c.NUM_EVALUATION_EPISODES, c.DEFAULT_TRAIN_PARAMS[c.NUM_EVALUATION_EPISODES])
     evaluation_render = experiment_settings.get(
         c.EVALUATION_RENDER, c.DEFAULT_TRAIN_PARAMS[c.EVALUATION_RENDER])
+    evaluation_stochastic = experiment_settings.get(c.EVALUATION_STOCHASTIC, False)
 
     assert save_path is None or os.path.isdir(save_path)
 
@@ -169,6 +161,21 @@ def train(agent,
     else:
         auxiliary_success = None
 
+    if experiment_settings.get(c.REWARD_MODEL, None) == 'sparse':
+        if hasattr(train_env, 'get_task_successes') and c.AUXILIARY_REWARDS in experiment_settings and \
+                hasattr(experiment_settings[c.AUXILIARY_REWARDS], '_aux_rewards_str'):
+            sparse_rew = partial(
+                train_env.get_task_successes, tasks=experiment_settings[c.AUXILIARY_REWARDS]._aux_rewards_str)
+        elif hasattr(train_env, 'get_task_successes') and hasattr(train_env, 'VALID_AUX_TASKS') and \
+                (auxiliary_reward.__qualname__ in train_env.VALID_AUX_TASKS or
+                auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>'):
+            if auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>':
+                sparse_rew = partial(train_env.get_task_successes, tasks=['main'])
+            else:
+                sparse_rew = partial(train_env.get_task_successes, tasks=[auxiliary_reward.__qualname__])
+        else:
+            raise NotImplementedError("Sparse reward needs the env to have successes defined.")
+
     eval = partial(evaluate_policy,
                    agent=evaluation_agent,
                    env=evaluation_env,
@@ -179,7 +186,8 @@ def train(agent,
                    max_action=max_action,
                    render=evaluation_render,
                    auxiliary_reward=auxiliary_reward,
-                   auxiliary_success=auxiliary_success)
+                   auxiliary_success=auxiliary_success,
+                   stochastic_policy=evaluation_stochastic)
     parallel_eval_process = None
     parallel_eval_q = mp.Queue()
     policy_eval_q = mp.Queue()
@@ -223,19 +231,29 @@ def train(agent,
                                      a_min=min_action,
                                      a_max=max_action)
 
+
+            env_tic = timeit.default_timer()
             next_obs, reward, done, env_info = train_env.step(env_action)
+            env_sample_time = timeit.default_timer() - env_tic
+
             next_obs = buffer_preprocess(next_obs)
 
-            reward = np.atleast_1d(auxiliary_reward(observation=curr_obs,
-                                                    action=env_action,
-                                                    reward=reward,
-                                                    done=done,
-                                                    next_observation=next_obs,
-                                                    info=env_info))
+            if experiment_settings.get(c.REWARD_MODEL, None) == 'sparse':
+                reward = np.atleast_1d(
+                    sparse_rew(observation=curr_obs, action=action, env_info=env_info['infos'][-1])).astype(np.float32)
+
+            else:
+                reward = np.atleast_1d(auxiliary_reward(observation=curr_obs,
+                                                        action=env_action,
+                                                        reward=reward,
+                                                        done=done,
+                                                        next_observation=next_obs,
+                                                        info=env_info))
 
             info = dict()
             info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, np.array([1]))
             info.update(act_info)
+            update_tic = timeit.default_timer()
             updated, update_info = agent.update(curr_obs,
                                                 curr_h_state,
                                                 action,
@@ -244,6 +262,8 @@ def train(agent,
                                                 info,
                                                 next_obs,
                                                 next_h_state)
+            update_info[c.AGENT_UPDATE_TIME] = [timeit.default_timer() - update_tic]
+            update_info[c.ENV_SAMPLE_TIME] = [env_sample_time]
 
             curr_obs = next_obs
             curr_h_state = next_h_state
@@ -322,10 +342,10 @@ def train(agent,
 
                             summary_writer.add_scalar(
                                 f"{c.EVALUATION_INFO}/task_{task_i}/{c.AVERAGE_RETURNS}", np.mean(task_i_ret),
-                                timestep_i)
+                                curr_timestep)
                             summary_writer.add_scalar(
                                 f"{c.EVALUATION_INFO}/task_{task_i}/{c.EVALUATION_SUCCESSES}", np.mean(task_i_success),
-                                timestep_i)
+                                curr_timestep)
                             multitask_returns[task_i] = task_i_ret
                             multitask_successes[task_i] = task_i_success
 
@@ -350,9 +370,9 @@ def train(agent,
                         task_i_success = evaluation_success_all_tasks[task_i, rets_slice]
 
                         summary_writer.add_scalar(
-                            f"{c.EVALUATION_INFO}/task_{task_i}/{c.AVERAGE_RETURNS}", np.mean(task_i_ret), timestep_i)
+                            f"{c.EVALUATION_INFO}/task_{task_i}/{c.AVERAGE_RETURNS}", np.mean(task_i_ret), curr_timestep)
                         summary_writer.add_scalar(
-                            f"{c.EVALUATION_INFO}/task_{task_i}/{c.EVALUATION_SUCCESSES}", np.mean(task_i_success), timestep_i)
+                            f"{c.EVALUATION_INFO}/task_{task_i}/{c.EVALUATION_SUCCESSES}", np.mean(task_i_success), curr_timestep)
                         multitask_returns[task_i] = task_i_ret
                         multitask_successes[task_i] = task_i_success
 
@@ -365,7 +385,7 @@ def train(agent,
                 epoch_summary.new_epoch()
 
             if save_path is not None and curr_timestep % save_interval == 0:
-                curr_save_path = f"{save_path}/{timestep_i}.pt"
+                curr_save_path = f"{save_path}/{curr_timestep}.pt"
                 print(f"Saving model to {curr_save_path}")
                 torch.save(agent.learning_algorithm.state_dict(), curr_save_path)
                 pickle.dump({c.RETURNS: returns if done else returns[:-1],
@@ -375,7 +395,7 @@ def train(agent,
                              c.EVALUATION_SUCCESSES: evaluation_successes,},
                             open(f'{save_path}/{c.TRAIN_FILE}', 'wb'))
                 if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
-                    buf_save_path = f"{save_path}/{timestep_i}_buffer.pkl"
+                    buf_save_path = f"{save_path}/{curr_timestep}_buffer.pkl"
                     has_absorbing_wrapper = False
                     for wrap_dict in experiment_settings[c.ENV_SETTING][c.ENV_WRAPPERS]:
                         if wrap_dict[c.WRAPPER] == AbsorbingStateWrapper:
@@ -400,7 +420,11 @@ def train(agent,
             )
         if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
             if save_path is not None:
-                agent.learning_algorithm.buffer.save(f"{save_path}/{c.TERMINATION_BUFFER_FILE}")
+                buf_save_path = f"{save_path}/{c.TERMINATION_BUFFER_FILE}"
+                agent.learning_algorithm.buffer.save(buf_save_path)
+                if last_buf_save_path is not None and \
+                        os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
+                    os.remove(last_buf_save_path)
             agent.learning_algorithm.buffer.close()
     toc = timeit.default_timer()
     print(f"Training took: {toc - tic}s")
@@ -432,13 +456,18 @@ def evaluate_policy(agent,
                     verbose=False,
                     forced_schedule=None,
                     stochastic_policy=False,
-                    success_ends_ep=True):  # should significantly speed up runs
+                    success_ends_ep=True,
+                    render_substeps=False,
+                    substep_render_delay=1):
 
     # example forced schedule: {0: 2, 90: 0}
 
     eval_returns = []
     done_successes = []
     aux_successes = []
+    all_stds = dict()
+    print_stds = False  # for debugging
+    calc_q_vals = False  # for debugging
     for e in range(num_episodes):
         eval_returns.append(0)
         curr_obs = env.reset()
@@ -449,17 +478,27 @@ def evaluate_policy(agent,
         done_successes.append(0)
         aux_successes.append([0])
         ts = 0
+        act_info = None
+        stds = []
+        q_values = []
+        all_obs = [curr_obs]
+        all_acts = []
+
+        if hasattr(env, c.RENDER) and render:
+            env.render()
 
         while not done:
-            if hasattr(env, c.RENDER) and render:
-                env.render()
-
             if forced_schedule is not None:
                 for t_key in forced_schedule.keys():
                     if ts == t_key:
                         print(f"switching to intention {forced_schedule[ts]}")
                         agent.high_level_model._intention_i = np.array(forced_schedule[ts])
                         agent.curr_high_level_act = np.array(forced_schedule[ts])
+
+                        if len(stds) > 0 and print_stds:
+                            stds = np.vstack(stds)
+                            print(f"Mean action std: {np.mean(stds, axis=0)}")
+                            stds = []
 
             if stochastic_policy:
                 action, h_state, act_info = agent.compute_action(
@@ -471,7 +510,29 @@ def evaluate_policy(agent,
             if clip_action:
                 action = np.clip(action, a_min=min_action, a_max=max_action)
 
-            next_obs, reward, done, env_info = env.step(action)
+            if c.VARIANCE in act_info:
+                stds.append(np.sqrt(act_info[c.VARIANCE]))
+            # print(f"act std: {np.sqrt(act_info[c.VARIANCE])}")
+
+            if print_stds:
+                if agent.high_level_model._intention_i.item() not in all_stds:
+                    all_stds[agent.high_level_model._intention_i.item()] = []
+                else:
+                    all_stds[agent.high_level_model._intention_i.item()].append(np.sqrt(act_info[c.VARIANCE]))
+
+            if calc_q_vals:
+                with torch.no_grad():
+                    q_value, _, _, _ = agent.model.q_vals(torch.tensor(curr_obs[None, :]), torch.tensor(h_state[None, :]),
+                                                        torch.tensor(action[None, :], dtype=torch.float32))
+                    q_values.append(q_value)
+
+            if render and render_substeps:
+                env_render_func = partial(env.render, substep_render=True)
+                next_obs, reward, done, env_info = env.step(action, substep_render_func=env_render_func,
+                                                            substep_render_delay=substep_render_delay)
+            else:
+                next_obs, reward, done, env_info = env.step(action)
+
             next_obs = buffer_preprocess(next_obs)
             if env_info.get(c.DONE_SUCCESS, False) or (env_info.get(c.INFOS, [{}])[0].get(c.DONE_SUCCESS, False)):
                 done_successes[-1] += 1
@@ -508,7 +569,40 @@ def evaluate_policy(agent,
 
             ts += 1
 
+            if hasattr(env, c.RENDER) and render:
+                env.render()
+
+            if calc_q_vals:
+                all_obs.append(curr_obs)
+                all_acts.append(action)
+
+            # for debugging
+            # if calc_q_vals and q_value[0, 2] > 10:
+            if calc_q_vals and e in [13, 44]:
+                def get_q(obs):
+                    if len(obs.shape) == 1:
+                        obs = obs[None, :]
+                    q_val, _, _, _ = agent.model.q_vals(
+                    torch.tensor(obs), torch.tensor(h_state[None, :]),
+                    torch.tensor(action[None, :], dtype=torch.float32))
+                    return q_val.detach()
+
+                q_values = np.vstack(q_values)
+                all_obs = np.vstack(all_obs)
+                all_acts = np.vstack(all_acts)
+                import ipdb; ipdb.set_trace()
+                all_obs = list(all_obs)
+                all_acts = list(all_acts)
+                q_values = list(q_values)
+
         if verbose:
             print(eval_returns[-1], done_successes[-1])
+
+        if print_stds:
+            print(f"ep {e}: cur average standard deviations for each aux")
+            for k, v in all_stds.items():
+                print(f"aux: {k} -- {np.vstack(v).mean(axis=0)} ")
+            if hasattr(agent.model, 'alpha'):
+                print(f"alpha: {agent.model.alpha}")
 
     return np.array(eval_returns).T, done_successes, np.array(aux_successes).T

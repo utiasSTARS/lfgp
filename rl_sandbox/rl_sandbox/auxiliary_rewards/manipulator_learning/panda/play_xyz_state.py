@@ -98,7 +98,7 @@ def close_open_gen(open_bool, include_reach, obs_act_only=False):
         return total_rew
 
     if open_bool:
-        close_or_open_action.__qualname__ = "open_action" if include_reach else "pure_open" 
+        close_or_open_action.__qualname__ = "open_action" if include_reach else "pure_open"
     else:
         close_or_open_action.__qualname__ = "close_action" if include_reach else "pure_close"
     return close_or_open_action
@@ -218,7 +218,7 @@ def bring_gen(block=0, include_reach_bonus=all_rew_include_dense_reach, bring_po
         if remove_other_bonus_mult is not None:
             remove_other_bonus = remove_other_bonus_mult * (1 - close(0, bring_pos, other_b_pos))
             if require_reach_radius is not None:
-                remove_other_bonus *= int(reach_dist <= require_reach_radius or 
+                remove_other_bonus *= int(reach_dist <= require_reach_radius or
                                           other_reach_dist <= require_reach_radius)
 
         return bring_rew + is_brought_bonus + remove_other_bonus
@@ -529,7 +529,7 @@ class AuxiliaryReward:
 
     @property
     def num_auxiliary_rewards(self):
-        return len(self._aux_rewards)
+        return len(self._aux_rewards) + self._include_main
 
     def set_aux_rewards_str(self):
         """ For older loaded classes that don't call init. """
@@ -598,18 +598,27 @@ class PandaPlayXYZStateAuxiliaryReward(AuxiliaryReward):
             #       "PandaPlayInsertTrayPlusPickPlaceXYZState, main_task should be stack_pp_env_X.")
             aux_rewards_added = get_aux_rewards(block_suf, ['stack', 'lift', 'reach', 'move_obj'])
             # aux_rewards_added.append(open_action)
+        elif main_task_no_suf == 'stack_no_move':
+            aux_rewards_added = get_aux_rewards(block_suf, ['stack', 'lift', 'reach'])
         elif main_task_no_suf == 'stack_pp_env':
             aux_rewards_added = get_aux_rewards(block_suf, ['stack_pp_env', 'lift', 'reach', 'move_obj'])
         elif main_task_no_suf == 'insert':
             aux_rewards_added = get_aux_rewards(block_suf, ['insert', 'bring', 'lift', 'reach', 'move_obj'])
+        elif main_task_no_suf == 'insert_no_bring':
+            aux_rewards_added = get_aux_rewards(block_suf, ['insert', 'lift', 'reach', 'move_obj'])
+        elif main_task_no_suf == 'insert_no_bring_no_move':
+            aux_rewards_added = get_aux_rewards(block_suf, ['insert', 'lift', 'reach'])
         elif main_task_no_suf == 'bring':
             aux_rewards_added = get_aux_rewards(block_suf, ['bring', 'lift', 'reach', 'move_obj'])
+        elif main_task_no_suf == 'bring_no_move':
+            aux_rewards_added = get_aux_rewards(block_suf, ['bring', 'lift', 'reach'])
         elif main_task_no_suf == 'lift':
             # aux_rewards_added = get_aux_rewards(block_suf, ['lift', 'reach', 'move_obj'])
             aux_rewards_added = get_aux_rewards(block_suf, ['lift', 'reach'])
         elif main_task_no_suf == 'move_obj':
             aux_rewards_added = get_aux_rewards(block_suf, ['lift', 'reach', 'move_obj'])
         elif main_task_no_suf == 'reach':
+            aux_rewards_all = [open_action]  # remove close_action for reach
             aux_rewards_added = get_aux_rewards(block_suf, ['reach'])
         elif main_task_no_suf == 'together':
             aux_rewards_added = get_aux_rewards(block_suf, ['lift', 'reach', 'move_obj'])
@@ -627,6 +636,8 @@ class PandaPlayXYZStateAuxiliaryReward(AuxiliaryReward):
             aux_rewards_added = get_aux_rewards(block_suf, ['stack', 'unstack', 'lift', 'reach', 'move_obj'])
         elif main_task_no_suf == 'unstack_stack_env_only':
             aux_rewards_added = get_aux_rewards(block_suf, ['stack', 'lift', 'reach', 'move_obj'])
+        elif main_task_no_suf == 'unstack_stack_env_only_no_move':
+            aux_rewards_added = get_aux_rewards(block_suf, ['stack', 'lift', 'reach'])
         elif main_task_no_suf == 'unstack_move_obj':
             aux_rewards_added = get_aux_rewards(block_suf, ['unstack', 'lift', 'reach', 'move_obj'])
         elif main_task_no_suf == 'unstack_lift':

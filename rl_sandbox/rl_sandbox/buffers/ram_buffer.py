@@ -12,6 +12,7 @@ from rl_sandbox.buffers.buffer import (
     LengthMismatchError,
     NoSampleError
 )
+from rl_sandbox.envs.wrappers.frame_stack import make_frame_stack
 import rl_sandbox.constants as c
 
 
@@ -39,21 +40,20 @@ class NumPyBuffer(Buffer):
         self.hidden_states = np.zeros(shape=(memory_size, *h_state_dim), dtype=np.float32)
         self.actions = np.zeros(shape=(memory_size, *action_dim), dtype=np.float32)
         self.rewards = np.zeros(shape=(memory_size, *reward_dim), dtype=np.float32)
-        self.dones = np.zeros(shape=(memory_size, 1), dtype=np.bool)
+        self.dones = np.zeros(shape=(memory_size, 1), dtype=bool)
         self.infos = dict()
         for info_name, (info_shape, info_dtype) in infos.items():
             self.infos[info_name] = np.zeros(shape=(memory_size, *info_shape), dtype=info_dtype)
-
         # This keeps track of the past X observations and hidden states for RNN
         self.burn_in_window = burn_in_window
         if burn_in_window > 0:
             self.padding_first = padding_first
             self.historic_observations = np.zeros(shape=(burn_in_window, *obs_dim), dtype=dtype)
             self.historic_hidden_states = np.zeros(shape=(burn_in_window, *h_state_dim), dtype=dtype)
-            self.historic_dones = np.zeros(shape=(burn_in_window, 1), dtype=np.bool)
+            self.historic_dones = np.zeros(shape=(burn_in_window, 1), dtype=bool)
 
         self._checkpoint_interval = checkpoint_interval
-        self._checkpoint_idxes = np.ones(shape=memory_size, dtype=np.bool)
+        self._checkpoint_idxes = np.ones(shape=memory_size, dtype=bool)
         if checkpoint_path is not None and memory_size >= checkpoint_interval > 0:
             self._checkpoint_path = checkpoint_path
             os.makedirs(checkpoint_path, exist_ok=True)
@@ -115,6 +115,7 @@ class NumPyBuffer(Buffer):
         self._checkpoint_count += 1
 
     def push(self, obs, h_state, act, rew, done, info, **kwargs):
+
         # Stores the overwritten observation and hidden state into historic variables
         if self.burn_in_window > 0:
             self.historic_observations = np.concatenate(
@@ -140,6 +141,8 @@ class NumPyBuffer(Buffer):
 
         if self._checkpoint_interval > 0 and (self._memory_size - self._checkpoint_idxes.sum()) >= self._checkpoint_interval:
             self.checkpoint()
+
+
         return True
 
     def push_multiple(self, obss, h_states, acts, rews, dones, infos, **kwargs):
@@ -179,12 +182,12 @@ class NumPyBuffer(Buffer):
     def _get_burn_in_window(self, idxes):
         historic_observations = np.zeros((len(idxes), self.burn_in_window, *self.observations.shape[1:]))
         historic_hidden_states = np.zeros((len(idxes), self.burn_in_window, *self.hidden_states.shape[1:]))
-        not_dones = np.ones(len(idxes), dtype=np.bool)
-        lengths = np.zeros(len(idxes), dtype=np.int)
+        not_dones = np.ones(len(idxes), dtype=bool)
+        lengths = np.zeros(len(idxes), dtype=int)
 
         for ii in range(1, self.burn_in_window + 1):
             shifted_idxes = idxes - self._pointer - ii
-            historic_idxes = np.logical_and(idxes - self._pointer - ii >= -self.burn_in_window, shifted_idxes < 0).astype(np.int)
+            historic_idxes = np.logical_and(idxes - self._pointer - ii >= -self.burn_in_window, shifted_idxes < 0).astype(int)
             non_historic_idxes = 1 - historic_idxes
 
             not_dones[np.where(self.dones[idxes - ii, 0] * non_historic_idxes)] = 0
@@ -210,8 +213,8 @@ class NumPyBuffer(Buffer):
         rews = self.rewards[idxes]
         dones = self.dones[idxes]
         infos = {info_name: info_value[idxes] for info_name, info_value in self.infos.items()}
-        
-        lengths = np.ones(len(obss), dtype=np.int)
+
+        lengths = np.ones(len(obss), dtype=int)
         if self.burn_in_window:
             historic_obss, historic_h_states, lengths = self._get_burn_in_window(idxes)
             obss = np.concatenate((historic_obss, obss[:, None, ...]), axis=1)
@@ -292,7 +295,7 @@ class NumPyBuffer(Buffer):
 
         idxes = np.arange(random_ending_idx - batch_size, random_ending_idx)
         obss, h_states, acts, rews, dones, infos, lengths = self.get_transitions(idxes)
-        
+
         return obss, h_states, acts, rews, dones, infos, lengths, random_ending_idx
 
     def save(self, save_path, end_with_done=True):
@@ -325,23 +328,55 @@ class NumPyBuffer(Buffer):
                 c.POINTER: pointer,
                 c.COUNT: count,
                 c.DTYPE: self._dtype,
-                c.RNG: self.rng,
+                # c.RNG: self.rng,  # removing for now because it breaks across numpy versions, and we don't use it
             }, f)
 
-    def load(self, load_path, load_rng=True):
+    def load(self, load_path, load_rng=True, start_idx=0, end_idx=None, frame_stack=1):
         with gzip.open(load_path, "rb") as f:
             data = pickle.load(f)
 
-        self._memory_size = data[c.MEMORY_SIZE]
-        self.observations = data[c.OBSERVATIONS]
-        self.hidden_states = data[c.HIDDEN_STATES]
-        self.actions = data[c.ACTIONS]
-        self.rewards = data[c.REWARDS]
-        self.dones = data[c.DONES]
-        self.infos = data[c.INFOS]
+        if end_idx is None:
+            self._memory_size = data[c.MEMORY_SIZE]
+        else:
+            self._memory_size = end_idx - start_idx
+
+        if data['observations'].shape[-1] == self.observations.shape[-1] + 1:
+            print("----------------------")
+            print(f"Warning: data at {load_path} has obs dim 1 higher than configured. Assuming that the last"\
+                  f"dim was an absorbing state index, and cutting it off during loading.")
+            print("----------------------")
+            data['observations'] = data['observations'][:, :-1]
+
+        elif data['observations'].shape[-1] == self.observations.shape[-1] + 1 + 6:
+            print("----------------------")
+            print(f"Warning: data at {load_path} has obs dim 7 higher than configured. Assuming that the last "\
+                  f"dim was an absorbing state index, and the last 6 before that were force torque, "\
+                  f"and cutting all 7 off during loading.")
+            print("----------------------")
+            data['observations'] = data['observations'][:, :-7]
+
+        if frame_stack > 1:
+            self.observations = make_frame_stack(frame_stack,
+                data[c.OBSERVATIONS][start_idx:end_idx], data[c.DONES][start_idx:end_idx])
+        else:
+            self.observations = data[c.OBSERVATIONS][start_idx:end_idx]
+
+        self._memory_size = data[c.MEMORY_SIZE][start_idx:end_idx]
+        self.hidden_states = data[c.HIDDEN_STATES][start_idx:end_idx]
+        self.actions = data[c.ACTIONS][start_idx:end_idx]
+        self.rewards = data[c.REWARDS][start_idx:end_idx]
+        self.dones = data[c.DONES][start_idx:end_idx]
+
+        for k in data[c.INFOS]:
+            self.infos[k] = data[c.INFOS][k][start_idx:end_idx]
 
         self._pointer = data[c.POINTER]
         self._count = data[c.COUNT]
+
+        # adjust if sizes change based on different idxes
+        if end_idx is not None:
+            self._count = min(self._count, end_idx - start_idx)
+            self._pointer = self._pointer % len(self)
 
         self._dtype = data[c.DTYPE]
         if load_rng:
@@ -359,7 +394,7 @@ class NumPyBuffer(Buffer):
         self.actions[:count] = data[c.ACTIONS][-count:]
         self.rewards[:count] = data[c.REWARDS][-count:]
         self.dones[:count] = data[c.DONES][-count:]
-        
+
         self._pointer = data[c.POINTER]
         self._count = data[c.COUNT]
 
@@ -533,25 +568,60 @@ class NextStateNumPyBuffer(NumPyBuffer):
                 c.POINTER: pointer,
                 c.COUNT: count,
                 c.DTYPE: self._dtype,
-                c.RNG: self.rng,
+                # c.RNG: self.rng,  # removing for now because it breaks across numpy versions, and we don't use it
             }, f)
 
-    def load(self, load_path, load_rng=True):
+    def load(self, load_path, load_rng=True, start_idx=0, end_idx=None, frame_stack=1):
         with gzip.open(load_path, "rb") as f:
             data = pickle.load(f)
 
-        self._memory_size = data[c.MEMORY_SIZE]
-        self.observations = data[c.OBSERVATIONS]
-        self.hidden_states = data[c.HIDDEN_STATES]
-        self.next_observations = data[c.NEXT_OBSERVATIONS]
-        self.next_hidden_states = data[c.NEXT_HIDDEN_STATES]
-        self.actions = data[c.ACTIONS]
-        self.rewards = data[c.REWARDS]
-        self.dones = data[c.DONES]
-        self.infos = data[c.INFOS]
+        if end_idx is None:
+            self._memory_size = data[c.MEMORY_SIZE]
+        else:
+            self._memory_size = end_idx - start_idx
+
+        if data['observations'].shape[-1] == self.observations.shape[-1] + 1:
+            print("----------------------")
+            print(f"Warning: data at {load_path} has obs dim 1 higher than configured. Assuming that the last"\
+                  f"dim was an absorbing state index, and cutting it off during loading.")
+            print("----------------------")
+            data['observations'] = data['observations'][:, :-1]
+            data['next_observations'] = data['next_observations'][:, :-1]
+        elif data['observations'].shape[-1] == self.observations.shape[-1] + 1 + 6:
+            print("----------------------")
+            print(f"Warning: data at {load_path} has obs dim 7 higher than configured. Assuming that the last "\
+                  f"dim was an absorbing state index, and the last 6 before that were force torque, "\
+                  f"and cutting all 7 off during loading.")
+            print("----------------------")
+            data['observations'] = data['observations'][:, :-7]
+            data['next_observations'] = data['next_observations'][:, :-7]
+
+        if frame_stack > 1:
+            self.observations, self.next_observations = make_frame_stack(frame_stack,
+                data[c.OBSERVATIONS][start_idx:end_idx], data[c.DONES][start_idx:end_idx],
+                data[c.NEXT_OBSERVATIONS][start_idx:end_idx])
+        else:
+            self.observations = data[c.OBSERVATIONS][start_idx:end_idx]
+            self.next_observations = data[c.NEXT_OBSERVATIONS][start_idx:end_idx]
+
+        self.observations = data[c.OBSERVATIONS][start_idx:end_idx]
+        self.hidden_states = data[c.HIDDEN_STATES][start_idx:end_idx]
+        self.next_observations = data[c.NEXT_OBSERVATIONS][start_idx:end_idx]
+        self.next_hidden_states = data[c.NEXT_HIDDEN_STATES][start_idx:end_idx]
+        self.actions = data[c.ACTIONS][start_idx:end_idx]
+        self.rewards = data[c.REWARDS][start_idx:end_idx]
+        self.dones = data[c.DONES][start_idx:end_idx]
+
+        for k in data[c.INFOS]:
+            self.infos[k] = data[c.INFOS][k][start_idx:end_idx]
 
         self._pointer = data[c.POINTER]
         self._count = data[c.COUNT]
+
+        # adjust if sizes change based on different idxes
+        if end_idx is not None:
+            self._count = min(self._count, end_idx - start_idx)
+            self._pointer = self._pointer % len(self)
 
         self._dtype = data[c.DTYPE]
         if load_rng:
@@ -571,7 +641,7 @@ class NextStateNumPyBuffer(NumPyBuffer):
         self.actions[:count] = data[c.ACTIONS][-count:]
         self.rewards[:count] = data[c.REWARDS][-count:]
         self.dones[:count] = data[c.DONES][-count:]
-        
+
         self._pointer = data[c.POINTER]
         self._count = data[c.COUNT]
 
@@ -622,7 +692,8 @@ class TrajectoryNumPyBuffer(NumPyBuffer):
         checkpoint_interval=0,
         checkpoint_path=None,
         rng=np.random,
-        dtype=np.float32
+        dtype=np.float32,
+        policy_switch_discontinuity = False
     ):
         super().__init__(
             memory_size=memory_size,
@@ -642,6 +713,11 @@ class TrajectoryNumPyBuffer(NumPyBuffer):
         self._episode_lengths = [0]
         self._episode_start_idxes = [0]
         self._last_observations = []
+        self._policy_discont_last_observations = []
+        self._policy_lengths = [0]
+        self._policy_start_idxes = [0]
+        self._curr_active_policy = None
+        self._policy_switch_discontinuity = policy_switch_discontinuity
 
     def push(
         self,
@@ -655,17 +731,61 @@ class TrajectoryNumPyBuffer(NumPyBuffer):
         next_h_state,
         **kwargs,
     ):
+        if self._policy_switch_discontinuity:
+            if self._count == 0:
+                self._curr_active_policy = info[c.HIGH_LEVEL_ACTION]
+                new_step_policy = None
+            else:
+                new_step_policy = info[c.HIGH_LEVEL_ACTION]
+
         self._episode_lengths[-1] += 1
+
         if self.is_full:
             self._episode_lengths[0] -= 1
             self._episode_start_idxes[0] += 1
+
             if self._episode_lengths[0] <= 0:
                 self._episode_lengths.pop(0)
                 self._episode_start_idxes.pop(0)
+
+            if self._policy_switch_discontinuity:
+                self._policy_lengths[0] -= 1
+                self._policy_start_idxes[0] += 1
+
+                if self._policy_lengths[0] <= 0:
+                    self._policy_lengths.pop(0)
+                    self._policy_start_idxes.pop(0)
+
+        if type(done) == list and len(done) == 1:
+            done = done[0]
+
+        if self._policy_switch_discontinuity and new_step_policy is not None:
+            # episode must not be on first step, since that will always erroneously cause another discontinuity,
+            # in addition to the one already recorded from done
+            if new_step_policy != self._curr_active_policy and self._episode_lengths[-1] > 1:
+                self._policy_lengths.append(0)
+                # not incremented as in done, since this timestep is new policy
+                self._policy_start_idxes.append(self._pointer)
+                self._policy_discont_last_observations.append(next_obs)
+
         if done:
             self._episode_lengths.append(0)
             self._last_observations.append(next_obs)
             self._episode_start_idxes.append(self._pointer + 1)
+
+            # treat done as a policy switch, since they're handled the same way during training
+            if self._policy_switch_discontinuity:
+                self._policy_lengths[-1] += 1
+                self._policy_lengths.append(0)
+                self._policy_start_idxes.append(self._pointer + 1)
+                self._policy_discont_last_observations.append(next_obs)
+
+        # must be done after policy lengths are appended or not
+        if self._policy_switch_discontinuity and not done:
+            self._policy_lengths[-1] += 1
+
+        if self._policy_switch_discontinuity and new_step_policy is not None:
+            self._curr_active_policy = new_step_policy
 
         return super().push(
             obs=obs, h_state=h_state, act=act, rew=rew, done=done, info=info
@@ -679,25 +799,48 @@ class TrajectoryNumPyBuffer(NumPyBuffer):
         horizon_length=2,
         **kwargs,
     ):
+        raise NotImplementedError("A cleaner, vectorized version of the function here is implemented in torch_pin_buffer. "\
+                                  "This is out of date, and not necessary for our experiments, so is not yet fixed.")
+
         assert horizon_length >= 2, f"horizon_length must be at least length of 2. Got: {horizon_length}"
         if not len(self._episode_lengths):
             raise NoSampleError
 
+        if self._policy_switch_discontinuity:
+            discontinuity_lengths = self._policy_lengths
+            discontinuity_start_idxes = self._policy_start_idxes
+        else:
+            discontinuity_lengths = self._episode_lengths
+            discontinuity_start_idxes = self._episode_start_idxes
+
         if idxes is None:
-            episode_idxes = self.rng.randint(int(self._episode_lengths[0] <= 1),
-                len(self._episode_lengths) - int(self._episode_lengths[-1] <= 1),
+            episode_idxes = self.rng.randint(int(discontinuity_lengths[0] <= 1),
+                len(discontinuity_lengths) - int(discontinuity_lengths[-1] <= 1),
                 size=batch_size,
             )
         else:
+            # episode_idxes is a list of generated/given episode indices, list size is batch_size,
+            # these episodes will be presumably used for sampling
             episode_idxes = idxes
 
         # Get subtrajectory within each episode
-        episode_lengths = np.array(self._episode_lengths)
-        episode_start_idxes = np.array(self._episode_start_idxes)
+        episode_lengths = np.array(discontinuity_lengths)
+        episode_start_idxes = np.array(discontinuity_start_idxes)
+
+        # using generated episode indexes above, convert/swap each episode index element into corresponding
+        # episode length value, same size as episode_idxes list
         batch_episode_lengths = episode_lengths[episode_idxes]
 
-        sample_lengths = np.tile(np.arange(horizon_length), (batch_size, 1))
+        sample_lengths = np.tile(np.arange(horizon_length), (batch_size, 1)) #generate stacked lists of arange values up to horizon length
+        #generate subtrajectory start indices by sampling random ints, each element of result is a random int with max value of corresponding element in batch_episode_lengths - 1.
+        # this presumably randomly generates a starting point/timestep within each episode to sample timesteps from, -1 is to ensure we can always at least sample one timestep before end of episode
         subtraj_start_idxes = self.rng.randint(batch_episode_lengths - 1)
+        # episode_start_idxes[episode_idxes] returns the starting timestep index number for each sampled episode index from above, replacing each episode index value with value of its corresponding starting timestep index
+        # this is added to the randomly sampled timestep in the middle of each sampled episode given in subtraj_start_idxes
+        # [:, None] just converts the list into a 2d list size (batch_size,1)
+        # horizon lengths given in sample_lengths(also a 2d list) are added to the 2D list (subtraj_start_idxes + episode_start_idxes[episode_idxes])[:, None]
+        #to create a range of n values starting from timestep value computed above, now it is a batch_size x n 2d array where each row is a sequentially incrementing value from the randomly sampled timestep in the middle of episode
+        #from left to right
         sample_idxes = (
             (subtraj_start_idxes + episode_start_idxes[episode_idxes])[:, None]
             + sample_lengths
@@ -710,11 +853,14 @@ class TrajectoryNumPyBuffer(NumPyBuffer):
             dones,
             infos,
             lengths,
-        ) = self.get_transitions(sample_idxes.reshape(-1))
+        ) = self.get_transitions(sample_idxes.reshape(-1)) #flatten the above 2d matrix and use to sample transitions/samples
 
+        #calculate the length of subtrajectory taken within each episode then clip the value to max n steps into the future
+        # so if we took a subtraj near the start of an episode we only consider n timesteps instead of to the end
         ep_lengths = np.clip(
             batch_episode_lengths - subtraj_start_idxes, a_min=0, a_max=horizon_length
         ).astype(np.int64)
+
         sample_mask = np.flip(
             np.cumsum(np.eye(horizon_length)[horizon_length - ep_lengths], axis=-1),
             axis=-1,
@@ -722,6 +868,7 @@ class TrajectoryNumPyBuffer(NumPyBuffer):
         sample_idxes = sample_idxes * sample_mask - np.ones(sample_idxes.shape) * (
             1 - sample_mask
         )
+
         infos[c.EPISODE_IDXES] = episode_idxes
 
         # If the episode ends too early, then the last observation should be in the trajectory
@@ -729,13 +876,11 @@ class TrajectoryNumPyBuffer(NumPyBuffer):
         for sample_i, (ep_i, length_i) in enumerate(zip(episode_idxes, ep_lengths)):
             if length_i == horizon_length:
                 continue
-            obss[sample_i * horizon_length + length_i] = self._last_observations[ep_i] if ep_i < len(self._last_observations) else next_obs
 
-        """
-        TODO: vectorize above, something like...
-        include_last_obs_eps = np.where(ep_lengths < horizon_length)
-        obss[(include_last_obs_eps, length_i)] = self._last_observations[episode_idxes[include_last_obs_eps]]
-        """
+            if self._policy_switch_discontinuity:
+                obss[sample_i * horizon_length + length_i] = self._policy_discont_last_observations[ep_i] if ep_i < len(self._policy_discont_last_observations) else next_obs
+            else:
+                obss[sample_i * horizon_length + length_i] = self._last_observations[ep_i] if ep_i < len(self._last_observations) else next_obs
 
         return (
             obss,

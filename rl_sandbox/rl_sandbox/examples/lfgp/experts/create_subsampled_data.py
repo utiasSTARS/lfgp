@@ -102,8 +102,11 @@ for dp in data_paths:
         inds = np.array(range(initial_offset, max_ind, args.keep_every_nth))
 
     if args.num_to_keep is not None:
-        assert len(inds) >= args.num_to_keep, f"Not enough timesteps, wanted {args.num_to_keep}, found "\
-                                                f"{len(inds)} for {gz_filename}."
+        # assert len(inds) >= args.num_to_keep, f"Not enough timesteps, wanted {args.num_to_keep}, found "\
+        #                                         f"{len(inds)} for {gz_filename}."
+        if len(inds) < args.num_to_keep:
+            print(f"Not enough timesteps, wanted {args.num_to_keep}, found {len(inds)} for {gz_filename}.")
+            # print(f"Skipping path {dp}")
         inds = inds[:args.num_to_keep]
 
     if args.num_extra_lasts is not None:

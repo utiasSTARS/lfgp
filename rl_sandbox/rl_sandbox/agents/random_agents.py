@@ -23,3 +23,26 @@ class UniformContinuousAgent:
 
     def reset(self):
         return None
+
+
+class UniformContinuousActionRepeatAgent(UniformContinuousAgent):
+    def __init__(self, min_action, max_action, max_repeat, min_repeat=1, rng=np.random):
+        super().__init__(min_action, max_action, rng)
+        self.min_repeat = min_repeat
+        self.max_repeat = max_repeat
+        self._cur_action = super().compute_action()
+        self.reset()
+
+    def compute_action(self, **kwargs):
+        if self._ts >= self._action_repeat:
+            self._cur_action = super().compute_action()
+            self._action_repeat = self.rng.randint(self.min_repeat, self.max_repeat)
+            self._ts = 0
+        self._ts += 1
+
+        return self._cur_action
+
+    def reset(self):
+        self._ts = 0
+        self._action_repeat = self.rng.randint(self.min_repeat, self.max_repeat)
+        return None

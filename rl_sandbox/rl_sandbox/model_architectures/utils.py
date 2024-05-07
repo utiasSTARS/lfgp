@@ -85,6 +85,7 @@ class RunningMeanStd():
 
         self.mean = new_mean
         self.var = new_var
+        self.std = torch.sqrt(self.var + self.epsilon)
         self.count = new_count
 
     def normalize(self, x):
@@ -98,4 +99,5 @@ class RunningMeanStd():
         return normalized_x
 
     def unnormalize(self, x):
-        return x * torch.sqrt(self.var + self.epsilon) + self.mean
+        # return x * torch.sqrt(self.var + self.epsilon) + self.mean
+        return x * self.std + self.mean

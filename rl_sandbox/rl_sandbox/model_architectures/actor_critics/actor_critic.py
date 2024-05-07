@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
+import timeit
 
 from torch.distributions import Normal
 from torch.distributions.transforms import TanhTransform
@@ -26,7 +27,7 @@ class ActorCritic(nn.Module):
         if normalize_obs:
             if isinstance(obs_dim, int):
                 obs_dim = (obs_dim,)
-            self.obs_rms = RunningMeanStd(shape=obs_dim, norm_dim=norm_dim)
+            self.obs_rms = RunningMeanStd(shape=obs_dim, norm_dim=norm_dim, device=self.device)
 
         if normalize_value:
             self.value_rms = RunningMeanStd(shape=(1,), norm_dim=(0,))
@@ -140,6 +141,7 @@ class SquashedGaussianSoftActorCritic(SoftActorCritic):
                  device=torch.device(CPU),
                  normalize_obs=False,
                  normalize_value=False,
+                 classifier_output=False,
                  **kwargs):
         super().__init__(obs_dim=obs_dim,
                          initial_alpha=initial_alpha,
@@ -150,11 +152,17 @@ class SquashedGaussianSoftActorCritic(SoftActorCritic):
                          **kwargs)
         self._eps = eps
         self._squash_gaussian = TanhTransform()
+        self._classifier_output = classifier_output
 
     def _q_vals(self, x, a):
         input = torch.cat((x, a), dim=1)
         q1_val = self._q1(input)
         q2_val = self._q2(input)
+
+        if self._classifier_output:
+            q1_val = torch.sigmoid(q1_val)
+            q2_val = torch.sigmoid(q2_val)
+
         min_q = torch.min(q1_val, q2_val)
         return min_q, q1_val, q2_val
 
@@ -167,12 +175,15 @@ class SquashedGaussianSoftActorCritic(SoftActorCritic):
         min_q, q1_val, q2_val = self._q_vals(x, a)
         return min_q, q1_val, q2_val, h
 
-    def act_lprob(self, x, h, **kwargs):
+    def act_lprob(self, x, h, return_raw_act=False, **kwargs):
         dist, _, _ = self.forward(x, h)
         action = dist.rsample()
         t_action = self._squash_gaussian(action)
         log_prob = self._lprob(dist, action, t_action)
-        return t_action, log_prob
+        if return_raw_act:
+            return t_action, log_prob, dist.mean
+        else:
+            return t_action, log_prob
 
     def deterministic_act_lprob(self, x, h, **kwargs):
         dist, _, _ = self.forward(x, h)

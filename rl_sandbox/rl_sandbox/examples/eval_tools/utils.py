@@ -115,7 +115,7 @@ def load_model(seed, config_path, model_path, intention=0, device="cpu", include
 
     if include_env:
         env_setting = config[c.ENV_SETTING]
-        if force_egl:
+        if force_egl and env_setting[c.ENV_TYPE] == c.MANIPULATOR_LEARNING:
             env_setting[c.KWARGS]["egl"] = True
         env = make_env(env_setting, seed=seed)
         return_list.append(env)

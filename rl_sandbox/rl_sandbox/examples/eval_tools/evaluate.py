@@ -93,7 +93,9 @@ def evaluate(args):
                                            auxiliary_success=auxiliary_success,
                                            verbose=True,
                                            forced_schedule=forced_schedule,
-                                           stochastic_policy=args.stochastic)
+                                           stochastic_policy=args.stochastic,
+                                           render_substeps=args.render_substeps,
+                                           substep_render_delay=args.substep_render_delay)
 
         print("=" * 100)
         print("Interacted with {} episodes".format(args.num_episodes))
@@ -142,6 +144,8 @@ if __name__ == "__main__":
                         help="Path to save results to. Defaults to model path.")
     parser.add_argument("--forced_schedule", required=False, type=str, default="",
                         help="Forced schedule for hierarchical agent in dict form, e.g. {0: 2, 90: 0}")
+    parser.add_argument("--render_substeps", action="store_true", help="Whether to render some substeps.")
+    parser.add_argument("--substep_render_delay", type=int, default=5, help="Number of substeps between renders, if on.")
     args = parser.parse_args()
 
     evaluate(args)

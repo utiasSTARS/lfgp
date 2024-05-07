@@ -14,7 +14,6 @@ class HierarchicalRLAgent(ACAgent):
         self.curr_high_level_obs = None
         self.curr_high_level_act = None
         self.curr_high_level_h_state = None
-
         super().__init__(model=low_level_model,
                          learning_algorithm=learning_algorithm,
                          preprocess=preprocess)
@@ -23,7 +22,6 @@ class HierarchicalRLAgent(ACAgent):
         info[c.HIGH_LEVEL_OBSERVATION] = self.curr_high_level_obs
         info[c.HIGH_LEVEL_HIDDEN_STATE] = self.curr_high_level_h_state
         info[c.HIGH_LEVEL_ACTION] = self.curr_high_level_act
-
         return self.learning_algorithm.update(curr_obs,
                                               curr_h_state,
                                               action,
@@ -60,7 +58,6 @@ class SACXAgent(HierarchicalRLAgent):
                                    c.VARIANCE: self.curr_high_level_variance}
 
         action, hidden_state, act_info = super().compute_action(obs, hidden_state)
-
         act_info[c.LOG_PROB] = act_info[c.LOG_PROB][self.curr_high_level_act]
         act_info[c.VALUE] = act_info[c.VALUE][self.curr_high_level_act]
         act_info[c.ENTROPY] = act_info[c.ENTROPY][self.curr_high_level_act]
@@ -103,16 +100,20 @@ class SACXAgent(HierarchicalRLAgent):
         self.curr_high_level_entropy = None
         self.curr_high_level_mean = None
         self.curr_high_level_variance = None
+
+        if hasattr(self.learning_algorithm, 'reset'):
+            self.learning_algorithm.reset()
+
         return super().reset()
 
 
 class SACXPlusForcedScheduleAgent(SACXAgent):
-    def __init__(self, forced_schedule, scheduler, intentions, learning_algorithm, scheduler_period, 
+    def __init__(self, forced_schedule, scheduler, intentions, learning_algorithm, scheduler_period,
                  preprocess=lambda obs: obs):
-        """ 
+        """
         forced_schedule should be a dictionary with optional integer entries corresponding to each
         possible aux task. if the scheduler chooses one of these entries at the initial timestep, the
-        forced schedule will be followed from that point forward.  
+        forced schedule will be followed from that point forward.
 
         each integer entry should have a sub-dictionary containing the desired schedule, which must, at least, contain
         an entry for 0 (corresponding to timestep 0). The entries of the sub-dictionary can either be an integer,
@@ -275,7 +276,7 @@ class SACXPlusForcedScheduleAgent(SACXAgent):
         self._curr_timestep += 1
         self._curr_intention_timestep += 1
         return action[self.curr_high_level_act], hidden_state, act_info
-    
+
     def reset(self):
         self._trans_on_suc_index = 0
         self._all_trans_on_suc_complete = False

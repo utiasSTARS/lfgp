@@ -5,6 +5,7 @@ import torch.autograd as autograd
 import torch.nn as nn
 
 import rl_sandbox.constants as c
+from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
 
 
 class DAC:
@@ -25,6 +26,8 @@ class DAC:
         self.device = algo_params[c.DEVICE]
         self.algo_params = algo_params
 
+        self._num_discrim_updates = algo_params.get(c.DISCRIMINATOR_NUM_UPDATES, 1)
+
         self._expbuf_last_sample_prop = algo_params.get(c.DISCRIMINATOR_EXPBUF_LAST_SAMPLE_PROP, 0)
         if self._expbuf_last_sample_prop > 0:
             # get final transition indices of each buffer
@@ -40,6 +43,24 @@ class DAC:
 
             # this might be an end, but adding to others anyways
             self._other_indices = np.concatenate([others, [len(self.expert_buffer) - 1]])
+
+        self._obs_dim_disc_ignore = algo_params.get(c.OBS_DIM_DISC_IGNORE, None)
+        if self._obs_dim_disc_ignore is not None:
+            self._obs_dim_disc_ignore = np.array(self._obs_dim_disc_ignore)
+
+            # handle frame stacking
+            num_frames = 1
+            for wrapper in self.algo_params[c.ENV_SETTING][c.ENV_WRAPPERS]:
+                if wrapper[c.WRAPPER] == FrameStackWrapper:
+                    num_frames = wrapper[c.KWARGS][c.NUM_FRAMES]
+
+            if num_frames > 1:
+                raw_obs_dim = self.discriminator._obs_dim / num_frames
+                all_obs_dim_ignore = []
+                for f in range(num_frames):
+                    all_obs_dim_ignore.extend((f * raw_obs_dim) + np.array(self._obs_dim_disc_ignore))
+
+                self._obs_dim_disc_ignore = np.array(all_obs_dim_ignore).astype(int)
 
     def state_dict(self):
         state_dict = dict()
@@ -91,6 +112,10 @@ class DAC:
         acts[absorbing_idx] = 0
         obss = self.train_preprocessing(obss)
 
+        if self._obs_dim_disc_ignore is not None:
+            obss[:, self._obs_dim_disc_ignore] = torch.zeros_like(obss[:, self._obs_dim_disc_ignore])
+            obss_e[:, self._obs_dim_disc_ignore] = torch.zeros_like(obss_e[:, self._obs_dim_disc_ignore])
+
         update_info[c.DISCRIMINATOR_SAMPLE_TIME].append(timeit.default_timer() - tic)
 
         tic = timeit.default_timer()
@@ -122,8 +147,13 @@ class DAC:
 
         output_mixture = self.discriminator(obss_mixture, acts_mixture)
 
+        if self.discriminator._obs_only:
+            grad_inputs = obss_mixture
+        else:
+            grad_inputs = (obss_mixture, acts_mixture)
+
         gradients = torch.cat(autograd.grad(outputs=output_mixture,
-                                            inputs=(obss_mixture, acts_mixture),
+                                            inputs=grad_inputs,
                                             grad_outputs=torch.ones(output_mixture.size(), device=self.device),
                                             create_graph=True,
                                             retain_graph=True,
@@ -142,14 +172,13 @@ class DAC:
 
 
     def update(self, curr_obs, curr_h_state, act, rew, done, info, next_obs, next_h_state):
-        # NOTE: The states are already processed such that the absorbing state padding is done through envs/wrappers/absorbing_state.py
         if curr_obs[:, -1] == 1:
             act[:] = 0
         self.buffer.push(obs=curr_obs,
                          h_state=curr_h_state,
                          act=act,
-                         rew=0.,
-                         done=[False],
+                         rew=rew if self.learning_algorithm._reward_model == c.SPARSE else 0.,
+                         done=done,
                          info=info,
                          next_obs=next_obs,
                          next_h_state=next_h_state)
@@ -157,8 +186,10 @@ class DAC:
         # The reward will be computed in the underlying policy learning algorithm
         # NOTE: Disable _store_to_buffer in learning algorithm
         discriminator_update_info = {}
-        if self.learning_algorithm.step >= self.learning_algorithm._buffer_warmup:
-            discriminator_update_info  = self.update_discriminator()
+        if self.learning_algorithm.step >= self.learning_algorithm._buffer_warmup and \
+                self.algo_params.get(c.REWARD_MODEL, "discriminator") == "discriminator":
+            for i in range(self._num_discrim_updates):
+                discriminator_update_info = self.update_discriminator()
         updated, update_info = self.learning_algorithm.update(self.discriminator, next_obs, next_h_state)
 
         update_info.update(discriminator_update_info)

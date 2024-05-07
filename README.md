@@ -1,12 +1,19 @@
 # Learning from Guided Play: Improving Exploration for Adversarial Imitation Learning with Simple Auxiliary Tasks
 #### Trevor Ablett, Bryan Chan, Jonathan Kelly
-*To appear in IEEE Robotics and Automation Letters (RA-L) and to be presented at the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS'23), Detroit, MI, USA, Oct. 1-5, 2023*
+*IEEE Robotics and Automation Letters (RA-L) presented at the IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS'23), Detroit, MI, USA, Oct. 1-5, 2023*
 
 **Paper website:** https://papers.starslab.ca/lfgp/
 
 *Presented as "Learning from Guided Play: A Scheduled Hierarchical Approach for Improving Exploration in Adversarial Imitation Learning" as a poster at the NeurIPS 2021 Deep Reinforcement Learning Workshop.*
 
 **NeurIPS workshop arXiv paper:** https://arxiv.org/abs/2112.08932
+
+## May 6, 2024 Update
+The code in this repository has been updated significantly for our new submission, [value-penalized auxiliary control from examples (VPACE)](https://github.com/utiasSTARS/vpace).
+For more information on that submission and corresponding experiments, see its repository.
+For learning from guided play (LfGP), see the remainder of this README.
+
+## Learning from Guided Play: Summary
 
 ****
 <img src="https://raw.githubusercontent.com/utiasSTARS/lfgp/master/system.png" width="75%" >
@@ -66,7 +73,7 @@ bash bc_no_overfit.bash 1 cuda:0 stack 6000_steps local test
 
 For reference, on a V100 gpu, our train times (to 2M steps) were approximately:
 
-| Algorithm    | Time | 
+| Algorithm    | Time |
 | -            | -    |
 | LfGP         | 32h  |
 | Multitask BC | 20h  |
@@ -168,11 +175,23 @@ The unzipped `lfgp_data` directory follows the structure:
 └── README.md
 ```
 
-## Citation
+## 5 Troubleshooting
+
+### 5.1 Gym Install Error
+This repository uses a version of gym that is deprecated, and [will not install correctly anymore](https://github.com/openai/gym/issues/3176).
+To install it you must first execute
+
+```bash
+pip install setuptools==65.5.0 pip==21  # gym 0.21 installation is broken with more recent versions
+```
+
+Then, you can pip install rl_sandbox as described.
+
+## 6 Citation
 If you use this in your work, please cite:
 <pre>
 @misc{ablett2021learning,
-      title={Learning from Guided Play: A Scheduled Hierarchical Approach for Improving Exploration in Adversarial Imitation Learning}, 
+      title={Learning from Guided Play: A Scheduled Hierarchical Approach for Improving Exploration in Adversarial Imitation Learning},
       author={Trevor Ablett and Bryan Chan and Jonathan Kelly},
       year={2021},
       eprint={2112.08932},

@@ -46,3 +46,6 @@ class SACX:
 
         return updated_intentions, update_info
 
+    def reset(self):
+        if hasattr(self.update_scheduler, 'reset'):
+            self.update_scheduler.reset()

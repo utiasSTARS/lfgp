@@ -17,7 +17,7 @@ class ActionRepeatWrapper:
     def reset(self, **kwargs):
         return self._env.reset(**kwargs)
 
-    def step(self, action):
+    def step(self, action, **kwargs):
         done = False
         cum_reward = 0
         num_repeated = 0
@@ -26,7 +26,7 @@ class ActionRepeatWrapper:
         }
 
         while not done and num_repeated < self._action_repeat:
-            obs, reward, done, info = self._env.step(action)
+            obs, reward, done, info = self._env.step(action, **kwargs)
             cum_reward += (self._discount_factor ** num_repeated) * reward
             num_repeated += 1
             infos[c.INFOS].append(info)

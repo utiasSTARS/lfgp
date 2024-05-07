@@ -1,29 +1,13 @@
 import os
 import rl_sandbox.constants as c
 
-def get_save_path(exp_type, main_task, seed, exp_name, user_machine):
-    """
-    exp_type should be one of lfgp, bc, sacx, multitask_bc, dac, lfgp_ns
-    """
-    if user_machine == 'local':
-        save_path = f"./results/{main_task}/{seed}/{exp_type}/{exp_name}"
-    elif user_machine == "None":
-        save_path = None
-    elif user_machine == "starslab":
-        main_save_path = f"/media/starslab/users/trevor-ablett/dac-x/play_xyz/"
-        save_path = os.path.join(main_save_path, main_task, str(seed), exp_type, exp_name)
-    elif user_machine == "trevor_cc":
-        main_save_path = f"/home/abletttr/scratch/lfgp/"
-        save_path = os.path.join(main_save_path, main_task, str(seed), exp_type, exp_name)
-    else:
-        raise NotImplementedError("Invalid option for argument user_machine of %s" % user_machine)
-
-    return save_path
+def get_save_path(algo_name, main_task, seed, exp_name, top_path="results"):
+    return os.path.join(top_path, main_task, str(seed), algo_name, exp_name)
 
 
-def config_check(experiment_config, user_machine):
+def config_check(experiment_config, top_path):
     """
-    custom checks for fixing config for particular user machines
+    custom checks for fixing config for particular machines
     """
-    if user_machine == 'trevor_cc':
+    if "scratch" in top_path and experiment_config[c.ENV_SETTING][c.ENV_TYPE] == c.MANIPULATOR_LEARNING:
         experiment_config[c.ENV_SETTING][c.KWARGS]["egl"] = False

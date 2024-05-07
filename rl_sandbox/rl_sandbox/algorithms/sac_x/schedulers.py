@@ -40,6 +40,7 @@ class Scheduler:
 
 
 class QTableScheduler(Scheduler):
+    LEARNED=True
     def __init__(self,
                  max_schedule,
                  num_tasks,
@@ -119,14 +120,15 @@ class QTableScheduler(Scheduler):
 
 
 class FixedScheduler(Scheduler):
+    LEARNED=False
     def __init__(self,
                  intention_i,
                  num_tasks,
                  max_schedule=0):
         super().__init__(max_schedule, num_tasks)
         assert intention_i < num_tasks
-        self._intention_i = np.array(intention_i, dtype=np.int)
-        self._intention = np.array(intention_i, dtype=np.int)  # for compatibility
+        self._intention_i = np.array(intention_i, dtype=int)
+        self._intention = np.array(intention_i, dtype=int)  # for compatibility
         self.zero = np.zeros((1, 1))
 
     def compute_action(self, state, h):
@@ -138,10 +140,11 @@ class FixedScheduler(Scheduler):
 
     def select_action(self, intention_i, state, h):
         action, value, h, lprob, entropy, _, _ = self.compute_action(state, h)
-        return np.array(intention_i, dtype=np.int), value, h, lprob, entropy
+        return np.array(intention_i, dtype=int), value, h, lprob, entropy
 
 
 class RecycleScheduler(Scheduler):
+    LEARNED=False
     def __init__(self,
                  num_tasks,
                  scheduling,
@@ -168,7 +171,7 @@ class RecycleScheduler(Scheduler):
         intention = np.where(self.count < self.scheduling)[0][0]
         self._intention = intention
         self.count = (self.count + 1) % self.scheduling[-1]
-        return np.array(intention, dtype=np.int), np.zeros(1), h.cpu().numpy(), self.zero, self.zero, None, None
+        return np.array(intention, dtype=int), np.zeros(1), h.cpu().numpy(), self.zero, self.zero, None, None
 
     def deterministic_action(self, state, h):
         action, value, h, lprob, entropy, _, _ = self.compute_action(state, h)
@@ -176,6 +179,7 @@ class RecycleScheduler(Scheduler):
 
 
 class UScheduler(Scheduler):
+    LEARNED=False
     def __init__(self,
                  num_tasks,
                  intention_i=0,
@@ -184,7 +188,7 @@ class UScheduler(Scheduler):
         if task_options is not None:
             num_tasks = len(task_options)
         super().__init__(max_schedule, num_tasks)
-        self._intention_i = np.array(intention_i, dtype=np.int)
+        self._intention_i = np.array(intention_i, dtype=int)
         self.zero = np.zeros((1, 1))
         self.lprob = np.log(1 / num_tasks)
         self.entropy = np.array([-num_tasks * (1 / num_tasks) * self.lprob])
@@ -201,10 +205,11 @@ class UScheduler(Scheduler):
         return self._intention_i, np.zeros(1), h.cpu().numpy(), self.zero, self.entropy
 
     def select_action(self, intention_i, state, h):
-        return np.array(intention_i, dtype=np.int), np.zeros(1), h.cpu().numpy(), self.zero, self.entropy
+        return np.array(intention_i, dtype=int), np.zeros(1), h.cpu().numpy(), self.zero, self.entropy
 
 
 class ConditionalWeightedScheduler(UScheduler):
+    LEARNED=False
     """
     reset_task_probs should be a list of num_tasks probabilities that sums to 1.
     task_conditional_probs should be list of num_tasks lists, each num_tasks long with probabilities summing to 1.
@@ -230,6 +235,7 @@ class ConditionalWeightedScheduler(UScheduler):
 
 
 class WeightedRandomScheduler(UScheduler):
+    LEARNED=False
     """
     A fixed categorical scheduler
     """
@@ -248,7 +254,35 @@ class WeightedRandomScheduler(UScheduler):
         return action, np.zeros(1), h.cpu().numpy(), self.lprob, self.entropy, None, None
 
 
+class WeightedRandomLinearShiftScheduler(UScheduler):
+    LEARNED=False
+    """
+    A categorical scheduler that changes task selection probabilities linearly from start_probs to end_probs
+    over n timesteps.
+    """
+    def __init__(self,
+                 start_probs,
+                 end_probs,
+                 n_timesteps,
+                 num_tasks,
+                 intention_i=0,
+                 max_schedule=0,
+                 task_options=None):
+        super().__init__(num_tasks, intention_i, max_schedule, task_options)
+        self.start_probs = start_probs
+        self.end_probs = end_probs
+        self.n_timesteps = n_timesteps
+
+    def compute_action(self, state, h):
+        import ipdb; ipdb.set_trace()
+        # TODO need to see if there's a convenient way to pass num steps to the scheduler
+        action = np.array(np.random.choice(self.task_options, p=self.task_select_probs))
+
+        return action, np.zeros(1), h.cpu().numpy(), self.lprob, self.entropy, None, None
+
+
 class WeightedRandomSchedulerPlusHandcraft(WeightedRandomScheduler):
+    LEARNED=False
     """
     A weighted random scheduler that, with epsilon probability, chooses uniformly random from
     a set of handcrafted trajectories for a single episode.

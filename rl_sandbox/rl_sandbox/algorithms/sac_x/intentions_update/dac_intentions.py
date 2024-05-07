@@ -172,8 +172,13 @@ class UpdateDACIntentions:
 
         output_mixture = self.discriminator(obss_mixture, acts_mixture)
 
+        if self.discriminator._obs_only:
+            grad_inputs = obss_mixture
+        else:
+            grad_inputs = (obss_mixture, acts_mixture)
+
         gradients = torch.cat(autograd.grad(outputs=output_mixture,
-                                            inputs=(obss_mixture, acts_mixture),
+                                            inputs=grad_inputs,
                                             grad_outputs=torch.ones(output_mixture.size(), device=self.device),
                                             create_graph=True,
                                             retain_graph=True,
@@ -192,15 +197,14 @@ class UpdateDACIntentions:
 
 
     def update(self, curr_obs, curr_h_state, act, rew, done, info, next_obs, next_h_state, update_buffer=True):
-        # NOTE: The states are already processed such that the absorbing state padding is done through envs/wrappers/absorbing_state.py
         if update_buffer:
-            if curr_obs[:, -1] == 1:
+            if curr_obs[:, -1] == 1:  # for absorbing states
                 act[:] = 0
             self.buffer.push(obs=curr_obs,
                             h_state=curr_h_state,
                             act=act,
-                            rew=0.,
-                            done=[False],
+                            rew=rew if self.learning_algorithm._reward_model == c.SPARSE else 0.,
+                            done=done,
                             info=info,
                             next_obs=next_obs,
                             next_h_state=next_h_state)
@@ -208,7 +212,8 @@ class UpdateDACIntentions:
         # The reward will be computed in the underlying policy learning algorithm
         # NOTE: Disable _store_to_buffer in learning algorithm
         discriminator_update_info = {}
-        if self.learning_algorithm.step >= self.learning_algorithm._buffer_warmup:
+        if self.learning_algorithm.step >= self.learning_algorithm._buffer_warmup and \
+                self.algo_params.get(c.REWARD_MODEL, "discriminator") == "discriminator":
             for i in range(self._num_discrim_updates):
                 discriminator_update_info = self.update_discriminator()
         updated, update_info = self.learning_algorithm.update(self.discriminator, next_obs, next_h_state)

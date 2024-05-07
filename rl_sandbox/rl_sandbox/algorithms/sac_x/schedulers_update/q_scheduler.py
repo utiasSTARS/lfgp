@@ -3,6 +3,7 @@ import torch
 import numpy as np
 
 import rl_sandbox.constants as c
+from rl_sandbox.envs.utils import absorbing_check
 
 
 class UpdateQScheduler:
@@ -41,16 +42,18 @@ class UpdateQScheduler:
 
         print(f"Scheduler Trajectory: {traj} - Q([], a), for all a: {q_first_action}")
 
-        tic = timeit.default_timer()
-        # update_info[c.Q_UPDATE_TIME] = []  # breaks print epoch summary if you use multiple gradient steps!!!
-        rets = self._compute_returns()
-        for step in range(len(traj)):
-            old_q_value = self.model.compute_qsa(traj[:step], traj[step])
-            new_q_value = old_q_value * (1 - self._scheduler_tau) + rets[step] * self._scheduler_tau
-            self.model.update_qsa(traj[:step], traj[step], new_q_value)
-        # update_info[c.Q_UPDATE_TIME].append(timeit.default_timer() - tic)
         update_info[c.SCHEDULER_TRAJ] = traj
         update_info[c.SCHEDULER_TRAJ_VALUE] = np.array(q_first_action)
+
+        if self.model.LEARNED:
+            tic = timeit.default_timer()
+            # update_info[c.Q_UPDATE_TIME] = []  # breaks print epoch summary if you use multiple gradient steps!!!
+            rets = self._compute_returns()
+            for step in range(len(traj)):
+                old_q_value = self.model.compute_qsa(traj[:step], traj[step])
+                new_q_value = old_q_value * (1 - self._scheduler_tau) + rets[step] * self._scheduler_tau
+                self.model.update_qsa(traj[:step], traj[step], new_q_value)
+            # update_info[c.Q_UPDATE_TIME].append(timeit.default_timer() - tic)
 
     def update(self, obs, act, reward, done, info):
         self._rewards.append(reward[self.main_intention].item())
@@ -79,6 +82,7 @@ class UpdateDACQScheduler(UpdateQScheduler):
         self.device = algo_params[c.DEVICE]
         self.train_preprocessing = algo_params[c.TRAIN_PREPROCESSING]
         self.main_intention = algo_params[c.MAIN_INTENTION]
+        self.use_absorbing = absorbing_check(algo_params)
 
     def _compute_returns(self):
         obss = self.train_preprocessing(torch.as_tensor(np.array(self.obss)).squeeze(1).float()).to(self.device)
@@ -99,16 +103,21 @@ class UpdateDACQScheduler(UpdateQScheduler):
         return returns[:-1][::self._scheduler_period]
 
     def update(self, obs, act, rew, done, info):
-        # NOTE: We have entered absorbing state which is pretty much over...
         self.curr_timestep += 1
         self.obss.append(obs)
         self.acts.append(act)
-        if obs[:, -1] == 1 or self.curr_timestep == self.max_ep_length:
+        if (self.use_absorbing and obs[:, -1] == 1) or self.curr_timestep == self.max_ep_length:
             act[:] = 0
             done = True
             self.curr_timestep = 0
 
         return super().update(obs, act, rew, done, info)
+
+    def reset(self):
+        # Call on env reset
+        self.obss = []
+        self.acts = []
+        self.curr_timestep = 0
 
 
 class UpdateDACQSchedulerPlusHandcraft(UpdateQScheduler):
@@ -123,6 +132,7 @@ class UpdateDACQSchedulerPlusHandcraft(UpdateQScheduler):
         self.device = algo_params[c.DEVICE]
         self.train_preprocessing = algo_params[c.TRAIN_PREPROCESSING]
         self.main_intention = algo_params[c.HANDCRAFT_TASKS]['main_task'][0]
+        self.use_absorbing = absorbing_check(algo_params)
 
     def _compute_returns(self):
         obss = self.train_preprocessing(torch.as_tensor(self.obss).squeeze(1).float()).to(self.device)
@@ -145,11 +155,10 @@ class UpdateDACQSchedulerPlusHandcraft(UpdateQScheduler):
         return returns[:-1][::self._scheduler_period]
 
     def update(self, obs, act, rew, done, info):
-        # NOTE: We have entered absorbing state which is pretty much over...
         self.curr_timestep += 1
         self.obss.append(obs)
         self.acts.append(act)
-        if obs[:, -1] == 1 or self.curr_timestep == self.max_ep_length:
+        if (self.use_absorbing and obs[:, -1] == 1) or self.curr_timestep == self.max_ep_length:
             act[:] = 0
             done = True
             self.curr_timestep = 0

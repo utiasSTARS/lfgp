@@ -8,7 +8,7 @@ setup(name='rl_sandbox',
                         'numpy==1.26.4',
                         'tensorboard',
                         'torch==1.13',
-                        'manipulator_learning @ git+ssh://git@github.com/utiasSTARS/manipulator_learning@master#egg=manipulator_learning',
+                        'manipulator_learning @ git+ssh://git@github.com/vpace-anon/manipulator_learning@main#egg=manipulator_learning',
                         'ConfigArgParse',
                         'PyYAML']
       )

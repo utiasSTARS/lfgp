@@ -13,3 +13,7 @@ setup(name='rl_sandbox',
                         'ConfigArgParse',
                         'PyYAML']
       )
+
+
+# grpcio == 1.46.0
+# protobuf == 3.18.1

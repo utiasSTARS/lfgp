@@ -273,6 +273,7 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         c.MAX_ACTION: max_action,
         c.MAX_EPISODE_LENGTH: args.max_episode_length,
         c.OBS_DIM: obs_dim,
+        c.TRAIN_DURING_ENV_STEP: args.train_during_env_step,
 
         # Evaluation
         c.NUM_EVALUATION_EPISODES: num_evaluation_episodes,
@@ -289,6 +290,7 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         c.PRINT_INTERVAL: 5000,
         c.SAVE_INTERVAL: args.save_interval,
         c.LOG_INTERVAL: args.log_interval,
+        c.CHECKPOINT_EVERY_EP: args.checkpoint_every_ep,
 
         # train parameters
         c.MAX_TOTAL_STEPS: max_total_steps,

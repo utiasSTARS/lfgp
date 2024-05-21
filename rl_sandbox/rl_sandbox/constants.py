@@ -64,6 +64,7 @@ Z_DIM = "z_dim"
 # Real Robot additions
 PANDA_RL_ENVS = "panda_rl_envs"
 TRAIN_DURING_ENV_STEP = "train_during_env_step"
+CHECKPOINT_EVERY_EP = "checkpoint_every_ep"
 
 # Environment
 ABSORBING_STATE = "absorbing_state"

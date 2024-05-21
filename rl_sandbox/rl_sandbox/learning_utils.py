@@ -20,7 +20,37 @@ from rl_sandbox.envs.fake_env import FakeEnv
 from rl_sandbox.utils import DummySummaryWriter, EpochSummary
 from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler, RecycleScheduler
 from rl_sandbox.agents.hrl_agents import SACXAgent
-from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper
+from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper, check_absorbing
+
+
+def timer(): return timeit.default_timer()
+
+
+def checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns, last_buf_save_path,
+                   evaluation_successes_all_tasks, evaluation_successes, experiment_settings,
+                   checkpoint_name="checkpoint", debug_print_time=False):
+    save_start = timer()
+    curr_save_path = f"{save_path}/{checkpoint_name}.pt"
+    # print(f"Saving model to {curr_save_path}")
+    torch.save(agent.learning_algorithm.state_dict(), curr_save_path)
+    pickle.dump({c.RETURNS: returns if done else returns[:-1],
+                 c.CUM_EPISODE_LENGTHS: cum_episode_lengths if done else cum_episode_lengths[:-1],
+                 c.EVALUATION_RETURNS: evaluation_returns,
+                 c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
+                 c.EVALUATION_SUCCESSES: evaluation_successes,},
+                open(f'{save_path}/{c.TRAIN_FILE}', 'wb'))
+    if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
+        buf_save_path = f"{save_path}/{checkpoint_name}_buffer.pkl"
+        has_absorbing_wrapper = check_absorbing(experiment_settings)
+        agent.learning_algorithm.buffer.save(buf_save_path, end_with_done=not has_absorbing_wrapper)
+        if last_buf_save_path is not None and \
+                os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
+            os.remove(last_buf_save_path)
+        last_buf_save_path = buf_save_path
+
+    if debug_print_time:
+        print(f"Checkpoint -- save time: {timer() - save_start:.2f}, buf len: {len(agent.learning_algorithm.buffer)}")
+
 
 def buffer_warmup(agent,
                   env,
@@ -329,6 +359,11 @@ def train(agent,
                 cum_episode_lengths.append(cum_episode_lengths[-1])
                 curr_episode += 1
 
+                if experiment_settings[c.CHECKPOINT_EVERY_EP]:
+                    checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+                               last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
+                               experiment_settings)
+
             curr_timestep = timestep_i + 1
             if evaluation_frequency > 0 and curr_timestep % evaluation_frequency == 0:
                 if experiment_settings.get(c.EVALUATION_IN_PARALLEL, False):
@@ -397,47 +432,16 @@ def train(agent,
                 epoch_summary.new_epoch()
 
             if save_path is not None and curr_timestep % save_interval == 0:
-                curr_save_path = f"{save_path}/{curr_timestep}.pt"
-                print(f"Saving model to {curr_save_path}")
-                torch.save(agent.learning_algorithm.state_dict(), curr_save_path)
-                pickle.dump({c.RETURNS: returns if done else returns[:-1],
-                             c.CUM_EPISODE_LENGTHS: cum_episode_lengths if done else cum_episode_lengths[:-1],
-                             c.EVALUATION_RETURNS: evaluation_returns,
-                             c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
-                             c.EVALUATION_SUCCESSES: evaluation_successes,},
-                            open(f'{save_path}/{c.TRAIN_FILE}', 'wb'))
-                if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
-                    buf_save_path = f"{save_path}/{curr_timestep}_buffer.pkl"
-                    has_absorbing_wrapper = False
-                    for wrap_dict in experiment_settings[c.ENV_SETTING][c.ENV_WRAPPERS]:
-                        if wrap_dict[c.WRAPPER] == AbsorbingStateWrapper:
-                            has_absorbing_wrapper = True
-                            break
-                    agent.learning_algorithm.buffer.save(buf_save_path, end_with_done=not has_absorbing_wrapper)
-                    if last_buf_save_path is not None and \
-                            os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
-                        os.remove(last_buf_save_path)
-                    last_buf_save_path = buf_save_path
+                checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+                           last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
+                           experiment_settings, checkpoint_name=curr_timestep)
+                print(f"Saved model to {save_path}/{curr_timestep}.pt")
     finally:
         if save_path is not None:
-            torch.save(agent.learning_algorithm.state_dict(),
-                       f"{save_path}/{c.TERMINATION_STATE_DICT_FILE}")
-            if not done:
-                returns = returns[:-1]
-                cum_episode_lengths = cum_episode_lengths[:-1]
-            pickle.dump(
-                {c.RETURNS: returns, c.CUM_EPISODE_LENGTHS: cum_episode_lengths,
-                    c.EVALUATION_RETURNS: evaluation_returns},
-                open(f'{save_path}/{c.TERMINATION_TRAIN_FILE}', 'wb')
-            )
-        if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
-            if save_path is not None:
-                buf_save_path = f"{save_path}/{c.TERMINATION_BUFFER_FILE}"
-                agent.learning_algorithm.buffer.save(buf_save_path)
-                if last_buf_save_path is not None and \
-                        os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
-                    os.remove(last_buf_save_path)
-            agent.learning_algorithm.buffer.close()
+            checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+                           last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
+                           experiment_settings, checkpoint_name='termination')
+            print(f"Saved model to {save_path}/termination.pt")
     toc = timeit.default_timer()
     print(f"Training took: {toc - tic}s")
 

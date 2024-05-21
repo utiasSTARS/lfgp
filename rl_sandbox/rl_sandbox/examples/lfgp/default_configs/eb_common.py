@@ -103,7 +103,6 @@ def get_settings(args):
     experiment_setting[c.NOISE_ZERO_TARGET_MODE] = args.noise_zero_target_mode
     experiment_setting[c.NZT_PER_OBS_SCALE] = args.nzt_per_obs_scale
     experiment_setting[c.SQIL_POLICY_REWARD_LABEL] = args.sqil_policy_reward_label
-    experiment_setting[c.TRAIN_DURING_ENV_STEP] = args.train_during_env_step
 
     if args.single_task:
         experiment_setting[c.MODEL_SETTING][c.KWARGS][c.CLASSIFIER_OUTPUT] = args.q_type == 'classifier'

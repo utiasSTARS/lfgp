@@ -61,6 +61,10 @@ TASK_DIM = "task_dim"
 U_DIM = "u_dim"
 Z_DIM = "z_dim"
 
+# Real Robot additions
+PANDA_RL_ENVS = "panda_rl_envs"
+TRAIN_DURING_ENV_STEP = "train_during_env_step"
+
 # Environment
 ABSORBING_STATE = "absorbing_state"
 ACTION_REPEAT = "action_repeat"
@@ -817,7 +821,8 @@ VALID_ENV_TYPE = (DM_CONTROL,
                   GYM_THING,
                   MANIPULATOR_LEARNING,
                   SAWYER,
-                  HAND_DAPG)
+                  HAND_DAPG,
+                  PANDA_RL_ENVS)
 
 VALID_DISCRIMINATOR = (GAUSSIAN,)
 

@@ -6,6 +6,7 @@ import torch.nn as nn
 
 import rl_sandbox.constants as c
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
+from rl_sandbox.envs.wrappers.absorbing_state import check_absorbing
 
 
 class DAC:
@@ -62,6 +63,8 @@ class DAC:
 
                 self._obs_dim_disc_ignore = np.array(all_obs_dim_ignore).astype(int)
 
+        self._use_absorbing_state = check_absorbing(self.algo_params)
+
     def state_dict(self):
         state_dict = dict()
         state_dict[c.ALGORITHM] = self.learning_algorithm.state_dict()
@@ -101,15 +104,17 @@ class DAC:
             obss_e, _, acts_e, _, _, _, lengths_e = self.expert_buffer.sample(self._discriminator_batch_size)
         idxes = lengths_e.unsqueeze(-1).repeat(1, *obss_e.shape[2:]).unsqueeze(1)
         obss_e = torch.gather(obss_e, axis=1, index=idxes - 1)[:, 0, :]
-        absorbing_idx_e = torch.where(obss_e[:, -1])[0]
-        acts_e[absorbing_idx_e] = 0
+        if self._use_absorbing_state:
+            absorbing_idx_e = torch.where(obss_e[:, -1])[0]
+            acts_e[absorbing_idx_e] = 0
         obss_e = self.train_preprocessing(obss_e)
 
         obss, _, acts, _, _, _, lengths = self.buffer.sample(self._discriminator_batch_size)
         idxes = lengths.unsqueeze(-1).repeat(1, *obss.shape[2:]).unsqueeze(1)
         obss = torch.gather(obss, axis=1, index=idxes - 1)[:, 0, :]
-        absorbing_idx = torch.where(obss[:, -1])[0]
-        acts[absorbing_idx] = 0
+        if self._use_absorbing_state:
+            absorbing_idx = torch.where(obss[:, -1])[0]
+            acts[absorbing_idx] = 0
         obss = self.train_preprocessing(obss)
 
         if self._obs_dim_disc_ignore is not None:
@@ -171,17 +176,18 @@ class DAC:
         return update_info
 
 
-    def update(self, curr_obs, curr_h_state, act, rew, done, info, next_obs, next_h_state):
-        if curr_obs[:, -1] == 1:
-            act[:] = 0
-        self.buffer.push(obs=curr_obs,
-                         h_state=curr_h_state,
-                         act=act,
-                         rew=rew if self.learning_algorithm._reward_model == c.SPARSE else 0.,
-                         done=done,
-                         info=info,
-                         next_obs=next_obs,
-                         next_h_state=next_h_state)
+    def update(self, curr_obs, curr_h_state, act, rew, done, info, next_obs, next_h_state, update_buffer=True):
+        if update_buffer:
+            if curr_obs[:, -1] == 1 and self._use_absorbing_state:
+                act[:] = 0
+            self.buffer.push(obs=curr_obs,
+                            h_state=curr_h_state,
+                            act=act,
+                            rew=rew if self.learning_algorithm._reward_model == c.SPARSE else 0.,
+                            done=done,
+                            info=info,
+                            next_obs=next_obs,
+                            next_h_state=next_h_state)
 
         # The reward will be computed in the underlying policy learning algorithm
         # NOTE: Disable _store_to_buffer in learning algorithm

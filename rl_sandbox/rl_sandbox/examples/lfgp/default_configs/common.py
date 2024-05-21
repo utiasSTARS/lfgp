@@ -237,6 +237,9 @@ def get_env_settings(args):
                 'hand_dapg_dp_kwargs': hand_dapg_dp_kwargs
             }
 
+    elif args.env_type == c.PANDA_RL_ENVS:
+        env_setting[c.ENV_BASE] = {c.ENV_NAME: args.env_name}
+
     return env_setting
 
 def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):

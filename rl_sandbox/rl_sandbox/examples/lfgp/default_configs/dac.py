@@ -15,7 +15,8 @@ import rl_sandbox.examples.lfgp.default_configs.common as common_default
 def reward_func(reward, **kwargs): return np.array([reward])
 
 def get_settings(args):
-    common_default.main_task_alias_set(args)
+    if args.env_type == c.MANIPULATOR_LEARNING:
+        common_default.main_task_alias_set(args)
     obs_dim, action_dim = common_default.get_obs_action_dim(args)
     common_default.default_settings(args)
     device = torch.device(args.device)
@@ -48,7 +49,7 @@ def get_settings(args):
         eval_reward = aux_reward_all._aux_rewards[aux_reward_names.index(aux_reward_name)]
         # eval_reward = reward_func  # use this for env reward
 
-    elif args.env_type in [c.SAWYER, c.HAND_DAPG]:
+    elif args.env_type in [c.SAWYER, c.HAND_DAPG, c.PANDA_RL_ENVS]:
         eval_reward = reward_func
 
     else:

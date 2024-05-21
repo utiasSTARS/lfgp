@@ -69,7 +69,8 @@ def get_parser():
     return parser
 
 def get_settings(args):
-    common_default.main_task_alias_set(args)
+    if args.env_type == c.MANIPULATOR_LEARNING:
+        common_default.main_task_alias_set(args)
     obs_dim, action_dim = common_default.get_obs_action_dim(args)
     common_default.default_settings(args)
     device = torch.device(args.device)

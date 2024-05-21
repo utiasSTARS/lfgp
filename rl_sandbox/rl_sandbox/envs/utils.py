@@ -22,6 +22,9 @@ def make_env(env_config, seed=None):
     elif env_config[c.ENV_TYPE] in [c.SAWYER, c.HAND_DAPG]:
         import rl_sandbox.envs.rce_envs as rce_envs
         env = rce_envs.load_env(env_config[c.ENV_BASE][c.ENV_NAME], gym_env=True, **env_config.get(c.KWARGS, {}))
+    elif env_config[c.ENV_TYPE] == c.PANDA_RL_ENVS:
+        import panda_rl_envs
+        env = getattr(panda_rl_envs, env_config[c.ENV_BASE][c.ENV_NAME])(**env_config.get(c.KWARGS, {}))
     else:
         raise NotImplementedError
 

@@ -233,36 +233,48 @@ def train(agent,
 
 
             env_tic = timeit.default_timer()
-            next_obs, reward, done, env_info = train_env.step(env_action)
+            if experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False):
+                # train_func = partial(agent.update, curr_obs, curr_h_state, action, reward, done, info, next_obs,
+                #                      next_h_state, update_buffer=False)
+                train_func = partial(agent.update, None, None, None, None, None, None, None, None, update_buffer=False)
+                next_obs, reward, done, env_info = train_env.step(env_action, train_func=train_func)
+                updated, update_info = train_env.get_train_update()
+
+            else:
+                next_obs, reward, done, env_info = train_env.step(env_action)
             env_sample_time = timeit.default_timer() - env_tic
 
             next_obs = buffer_preprocess(next_obs)
 
-            if experiment_settings.get(c.REWARD_MODEL, None) == 'sparse':
+            if experiment_settings.get(c.REWARD_MODEL, None) == c.SPARSE:
                 reward = np.atleast_1d(
                     sparse_rew(observation=curr_obs, action=action, env_info=env_info['infos'][-1])).astype(np.float32)
 
             else:
-                reward = np.atleast_1d(auxiliary_reward(observation=curr_obs,
-                                                        action=env_action,
-                                                        reward=reward,
-                                                        done=done,
-                                                        next_observation=next_obs,
-                                                        info=env_info))
+                reward = np.atleast_1d(
+                    auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
+                                     next_observation=next_obs, info=env_info))
 
             info = dict()
             info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, np.array([1]))
             info.update(act_info)
-            update_tic = timeit.default_timer()
-            updated, update_info = agent.update(curr_obs,
-                                                curr_h_state,
-                                                action,
-                                                reward,
-                                                done,
-                                                info,
-                                                next_obs,
-                                                next_h_state)
-            update_info[c.AGENT_UPDATE_TIME] = [timeit.default_timer() - update_tic]
+
+            # add data to buffer, first handle absorbing states
+            if curr_obs[:, -1] == 1 and agent._use_absorbing_state:
+                act[:] = 0
+
+            # real reward added to buffer, overwritten by IRL methods during sampling
+            agent.learning_algorithm.buffer.push(
+                obs=curr_obs, h_state=curr_h_state, act=action, rew=reward, done=done, info=info,
+                next_obs=next_obs, next_h_state=next_h_state)
+
+            # train
+            if not experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False):
+                update_tic = timeit.default_timer()
+                updated, update_info = agent.update(
+                    curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state, update_buffer=False)
+                update_info[c.AGENT_UPDATE_TIME] = [timeit.default_timer() - update_tic]
+
             update_info[c.ENV_SAMPLE_TIME] = [env_sample_time]
 
             curr_obs = next_obs

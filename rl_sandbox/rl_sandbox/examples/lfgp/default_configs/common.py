@@ -291,6 +291,8 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         c.SAVE_INTERVAL: args.save_interval,
         c.LOG_INTERVAL: args.log_interval,
         c.CHECKPOINT_EVERY_EP: args.checkpoint_every_ep,
+        c.LOAD_LATEST_CHECKPOINT: args.load_latest_checkpoint,
+        c.CHECKPOINT_NAME: args.checkpoint_name,
 
         # train parameters
         c.MAX_TOTAL_STEPS: max_total_steps,

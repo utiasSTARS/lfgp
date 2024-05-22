@@ -22,12 +22,13 @@ class DummySummaryWriter():
         pass
 
 
-def make_summary_writer(save_path, algo, cfg):
+def make_summary_writer(save_path, algo, cfg, add_time_tag=True):
     summary_writer = DummySummaryWriter()
     cfg[c.ALGO] = algo
     if save_path is not None:
-        time_tag = datetime.strftime(datetime.now(), "%m-%d-%y_%H_%M_%S")
-        save_path = f"{save_path}/{time_tag}"
+        if add_time_tag:
+            time_tag = datetime.strftime(datetime.now(), "%m-%d-%y_%H_%M_%S")
+            save_path = f"{save_path}/{time_tag}"
         os.makedirs(save_path, exist_ok=True)
         summary_writer = SummaryWriter(log_dir=f"{save_path}/tensorboard")
         pickle.dump(
@@ -41,6 +42,13 @@ def make_summary_writer(save_path, algo, cfg):
         )
 
     return summary_writer, save_path
+
+def get_rng_state():
+    return {'torch_rng_state': torch.get_rng_state(), 'np_rng_state': np.random.get_state()}
+
+def set_rng_state(torch_rng_state, np_rng_state):
+    torch.set_rng_state(torch_rng_state.cpu())  # without .cpu throws a bizarre error about not being a ByteTensor
+    np.random.set_state(np_rng_state)
 
 def set_seed(seed=None):
     if seed is None:

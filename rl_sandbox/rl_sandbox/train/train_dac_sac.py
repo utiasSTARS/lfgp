@@ -1,3 +1,6 @@
+import os
+import glob
+
 import torch
 
 import rl_sandbox.constants as c
@@ -11,13 +14,24 @@ from rl_sandbox.learning_utils import train
 from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.agents.rl_agents import ACAgent, ACAgentEUniformExplorer
 from rl_sandbox.transforms.general_transforms import Identity
-from rl_sandbox.utils import make_summary_writer, set_seed
+from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
 
 def train_dac_sac(experiment_config):
     seed = experiment_config[c.SEED]
     save_path = experiment_config.get(c.SAVE_PATH, None)
     buffer_preprocessing = experiment_config.get(c.BUFFER_PREPROCESSING, Identity())
+
+    if experiment_config[c.LOAD_LATEST_CHECKPOINT]:
+        add_time_tag_to_save_path = False
+        save_path = sorted(glob.glob(os.path.join(save_path, '*')))[-1]
+        print(f"Loading latest checkpoint from {save_path}/{experiment_config[c.CHECKPOINT_NAME]}")
+        experiment_config[c.BUFFER_SETTING][c.LOAD_BUFFER] = os.path.join(
+            save_path, f"{experiment_config[c.CHECKPOINT_NAME]}_buffer.pkl")
+        experiment_config[c.LOAD_MODEL] = os.path.join(
+            save_path, f"{experiment_config[c.CHECKPOINT_NAME]}.pt")
+    else:
+        add_time_tag_to_save_path = True
 
     set_seed(seed)
     train_env = make_env(experiment_config[c.ENV_SETTING], seed)
@@ -70,7 +84,9 @@ def train_dac_sac(experiment_config):
 
     load_model = experiment_config.get(c.LOAD_MODEL, False)
     if load_model:
-        learning_algorithm.load_state_dict(torch.load(load_model))
+        state_dict = torch.load(load_model, map_location=experiment_config[c.DEVICE])
+        dac.load_state_dict(state_dict)
+        set_rng_state(state_dict[c.TORCH_RNG_STATE], state_dict[c.NP_RNG_STATE])
 
     # TODO add this as a proper option
     # agent = ACAgentEUniformExplorer(model=model, learning_algorithm=dac,
@@ -80,10 +96,11 @@ def train_dac_sac(experiment_config):
                     learning_algorithm=dac,
                     preprocess=experiment_config[c.EVALUATION_PREPROCESSING])
 
-
+    # overwrites the save path with a time tag
     summary_writer, save_path = make_summary_writer(save_path=save_path,
                                                     algo=c.DAC,
-                                                    cfg=experiment_config)
+                                                    cfg=experiment_config,
+                                                    add_time_tag=add_time_tag_to_save_path)
     evaluation_env = None
     evaluation_agent = None
     if experiment_config.get(c.EVALUATION_FREQUENCY, 0):

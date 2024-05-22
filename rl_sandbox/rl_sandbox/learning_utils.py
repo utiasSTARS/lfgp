@@ -17,7 +17,7 @@ import rl_sandbox.constants as c
 
 from rl_sandbox.envs.utils import make_env
 from rl_sandbox.envs.fake_env import FakeEnv
-from rl_sandbox.utils import DummySummaryWriter, EpochSummary
+from rl_sandbox.utils import DummySummaryWriter, EpochSummary, get_rng_state
 from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler, RecycleScheduler
 from rl_sandbox.agents.hrl_agents import SACXAgent
 from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper, check_absorbing
@@ -32,7 +32,11 @@ def checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_
     save_start = timer()
     curr_save_path = f"{save_path}/{checkpoint_name}.pt"
     # print(f"Saving model to {curr_save_path}")
-    torch.save(agent.learning_algorithm.state_dict(), curr_save_path)
+    state_dict = agent.learning_algorithm.state_dict()
+    rng_state_dict = get_rng_state()
+    for k, v in rng_state_dict.items():
+        state_dict[k] = v
+    torch.save(state_dict, curr_save_path)
     pickle.dump({c.RETURNS: returns if done else returns[:-1],
                  c.CUM_EPISODE_LENGTHS: cum_episode_lengths if done else cum_episode_lengths[:-1],
                  c.EVALUATION_RETURNS: evaluation_returns,

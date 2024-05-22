@@ -86,6 +86,8 @@ def get_parser():
     parser.add_argument('--top_save_path', type=str, default='results', help="Top directory for saving results")
     parser.add_argument('--exp_name', type=str, default="", help="String corresponding to the experiment name")
     parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
+    parser.add_argument('--load_latest_checkpoint', action='store_true', help="Continue training latest exp_name checkpoint")
+    parser.add_argument('--checkpoint_name', type=str, default='checkpoint', help="Checkpoint name for load_latest_checkpoint")
 
     # n step
     parser.add_argument('--n_step', type=int, default=1, help="If greater than 1, add an n-step loss to the q updates.")

@@ -65,6 +65,8 @@ Z_DIM = "z_dim"
 PANDA_RL_ENVS = "panda_rl_envs"
 TRAIN_DURING_ENV_STEP = "train_during_env_step"
 CHECKPOINT_EVERY_EP = "checkpoint_every_ep"
+LOAD_LATEST_CHECKPOINT = "load_latest_checkpoint"
+CHECKPOINT_NAME = "checkpoint_name"
 
 # Environment
 ABSORBING_STATE = "absorbing_state"
@@ -125,6 +127,8 @@ SEED = "seed"
 TRAIN = "train"
 TRAIN_PREPROCESSING = "train_preprocessing"
 UPDATE_NUM = "update_num"
+TORCH_RNG_STATE = "torch_rng_state"
+NP_RNG_STATE = "np_rng_state"
 
 # Graphics
 RGB = "rgb"

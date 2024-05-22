@@ -63,6 +63,8 @@ def get_parser():
                         # default=('pos,vel,grip_pos,prev_grip_pos,obj_pos,obj_rot,obj_vel,obj_rot_vel,force_torque'),
                         default=('pos,vel,grip_pos,prev_grip_pos,obj_pos,obj_rot,obj_vel,obj_rot_vel'),
                                      help="Things included in state (for play env)")
+    parser.add_argument('--train_during_env_step', action='store_true',
+                    help="(for non-sim envs) Perform train/backwards pass during env step delay between act exec and obs gen")
 
     # expert data
     parser.add_argument('--expert_top_dir', type=str, default='../../lfgp_data/expert_data/')
@@ -88,6 +90,8 @@ def get_parser():
     parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
     parser.add_argument('--load_latest_checkpoint', action='store_true', help="Continue training latest exp_name checkpoint")
     parser.add_argument('--checkpoint_name', type=str, default='checkpoint', help="Checkpoint name for load_latest_checkpoint")
+    parser.add_argument('--save_checkpoint_name', type=str, default='checkpoint', help="Checkpoint name for saving checkpoints")
+    parser.add_argument('--checkpoint_every_ep', action='store_true', help="Save checkpoint after every ep to restart from")
 
     # n step
     parser.add_argument('--n_step', type=int, default=1, help="If greater than 1, add an n-step loss to the q updates.")

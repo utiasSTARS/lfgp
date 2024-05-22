@@ -27,9 +27,12 @@ def timer(): return timeit.default_timer()
 
 
 def checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns, last_buf_save_path,
-                   evaluation_successes_all_tasks, evaluation_successes, experiment_settings,
-                   checkpoint_name="checkpoint", debug_print_time=False):
+               evaluation_successes_all_tasks, evaluation_successes, experiment_settings,
+               learning_utils_tracking_dict,
+               checkpoint_name="checkpoint", debug_print_time=False, save_buffer=True):
     save_start = timer()
+
+    # model
     curr_save_path = f"{save_path}/{checkpoint_name}.pt"
     # print(f"Saving model to {curr_save_path}")
     state_dict = agent.learning_algorithm.state_dict()
@@ -43,17 +46,27 @@ def checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_
                  c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
                  c.EVALUATION_SUCCESSES: evaluation_successes,},
                 open(f'{save_path}/{c.TRAIN_FILE}', 'wb'))
-    if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
+
+    # buffer
+    if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER) and save_buffer:
         buf_save_path = f"{save_path}/{checkpoint_name}_buffer.pkl"
         has_absorbing_wrapper = check_absorbing(experiment_settings)
+        if last_buf_save_path == buf_save_path and os.path.isfile(last_buf_save_path):
+            os.rename(last_buf_save_path, last_buf_save_path + '.bak')
+            last_buf_save_path += '.bak'
         agent.learning_algorithm.buffer.save(buf_save_path, end_with_done=not has_absorbing_wrapper)
         if last_buf_save_path is not None and \
                 os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
             os.remove(last_buf_save_path)
         last_buf_save_path = buf_save_path
 
+    # tracking variables
+    pickle.dump(learning_utils_tracking_dict, open(f'{save_path}/{checkpoint_name}_tracking_dict.pkl', 'wb'))
+
     if debug_print_time:
         print(f"Checkpoint -- save time: {timer() - save_start:.2f}, buf len: {len(agent.learning_algorithm.buffer)}")
+
+    return last_buf_save_path
 
 
 def buffer_warmup(agent,
@@ -140,10 +153,10 @@ def train(agent,
         c.MAX_TOTAL_STEPS, c.DEFAULT_TRAIN_PARAMS[c.MAX_TOTAL_STEPS])
 
     # Progress Tracking
-    curr_episode = experiment_settings.get(
-        c.CURR_EPISODE, c.DEFAULT_TRAIN_PARAMS[c.CURR_EPISODE])
-    num_updates = experiment_settings.get(
-        c.NUM_UPDATES, c.DEFAULT_TRAIN_PARAMS[c.NUM_UPDATES])
+    curr_episode = np.array(experiment_settings.get(
+        c.CURR_EPISODE, c.DEFAULT_TRAIN_PARAMS[c.CURR_EPISODE]))
+    num_updates = np.array(experiment_settings.get(
+        c.NUM_UPDATES, c.DEFAULT_TRAIN_PARAMS[c.NUM_UPDATES]))
     returns = experiment_settings.get(
         c.RETURNS, c.DEFAULT_TRAIN_PARAMS[c.RETURNS])
     cum_episode_lengths = experiment_settings.get(
@@ -173,6 +186,17 @@ def train(agent,
     evaluation_render = experiment_settings.get(
         c.EVALUATION_RENDER, c.DEFAULT_TRAIN_PARAMS[c.EVALUATION_RENDER])
     evaluation_stochastic = experiment_settings.get(c.EVALUATION_STOCHASTIC, False)
+
+    # tracking dict for saving, all referencing original objects
+    tracking_dict = {
+        c.CURR_EPISODE: curr_episode,
+        c.NUM_UPDATES: num_updates,
+        c.RETURNS: returns,
+        c.CUM_EPISODE_LENGTHS: cum_episode_lengths,
+        c.EVALUATION_RETURNS: evaluation_returns,
+        c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
+        c.EVALUATION_SUCCESSES: evaluation_successes
+    }
 
     assert save_path is None or os.path.isdir(save_path)
 
@@ -244,6 +268,21 @@ def train(agent,
 
         epoch_summary = EpochSummary()
         epoch_summary.new_epoch()
+
+        # Loading checkpoint variables by setting references from dict...bit of a hack
+        if experiment_settings[c.LOAD_LATEST_CHECKPOINT]:
+            loaded_tracking_dict = pickle.load(open(
+                os.path.join(save_path, f'{experiment_settings[c.CHECKPOINT_NAME]}_tracking_dict.pkl'), 'rb'))
+            for k, v in loaded_tracking_dict.items():
+                # also set the local variable, in addition to the dictionary object, since same reference
+                if type(v) == np.ndarray and v.shape == ():
+                    tracking_dict[k].fill(v)
+                elif type(v) == list:
+                    tracking_dict[k].clear()
+                    tracking_dict[k].extend(v)
+                else:
+                    raise NotImplementedError(f"tracking variable {k} is a {type(v)}, not a loadable type yet")
+
         for timestep_i in range(cum_episode_lengths[-1], max_total_steps):
             if hasattr(train_env, c.RENDER) and train_render:
                 train_env.render()
@@ -264,7 +303,6 @@ def train(agent,
                 env_action = np.clip(action,
                                      a_min=min_action,
                                      a_max=max_action)
-
 
             env_tic = timeit.default_timer()
             if experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False):
@@ -346,7 +384,7 @@ def train(agent,
                     cum_episode_lengths[-2]
                 for task_i, task_i_ret in enumerate(returns[-1]):
                     summary_writer.add_scalar(
-                        f"{c.INTERACTION_INFO}/task_{task_i}/{c.RETURNS}", task_i_ret, timestep_i)
+                        f"{c.INTERACTION_INFO}/task_{task_i}/{c.RETURNS}", task_i_ret, timestep_i + 1)
                 summary_writer.add_scalar(
                     f"{c.INTERACTION_INFO}/{c.EPISODE_LENGTHS}", episode_length, curr_episode)
 
@@ -364,9 +402,10 @@ def train(agent,
                 curr_episode += 1
 
                 if experiment_settings[c.CHECKPOINT_EVERY_EP]:
-                    checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
-                               last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
-                               experiment_settings)
+                    last_buf_save_path = checkpoint(
+                        save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+                        last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
+                        experiment_settings, tracking_dict, checkpoint_name=experiment_settings[c.SAVE_CHECKPOINT_NAME])
 
             curr_timestep = timestep_i + 1
             if evaluation_frequency > 0 and curr_timestep % evaluation_frequency == 0:
@@ -436,15 +475,16 @@ def train(agent,
                 epoch_summary.new_epoch()
 
             if save_path is not None and curr_timestep % save_interval == 0:
-                checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+                last_buf_save_path = checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
                            last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
-                           experiment_settings, checkpoint_name=curr_timestep)
+                           experiment_settings, tracking_dict, checkpoint_name=curr_timestep,
+                           save_buffer=not experiment_settings[c.CHECKPOINT_EVERY_EP])
                 print(f"Saved model to {save_path}/{curr_timestep}.pt")
     finally:
-        if save_path is not None:
-            checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+        if save_path is not None and not experiment_settings[c.CHECKPOINT_EVERY_EP]:
+            last_buf_save_path = checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
                            last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
-                           experiment_settings, checkpoint_name='termination')
+                           experiment_settings, tracking_dict, checkpoint_name='termination')
             print(f"Saved model to {save_path}/termination.pt")
     toc = timeit.default_timer()
     print(f"Training took: {toc - tic}s")

@@ -67,6 +67,7 @@ TRAIN_DURING_ENV_STEP = "train_during_env_step"
 CHECKPOINT_EVERY_EP = "checkpoint_every_ep"
 LOAD_LATEST_CHECKPOINT = "load_latest_checkpoint"
 CHECKPOINT_NAME = "checkpoint_name"
+SAVE_CHECKPOINT_NAME = "save_checkpoint_name"
 
 # Environment
 ABSORBING_STATE = "absorbing_state"
@@ -267,6 +268,7 @@ PRIORITIZED_EXPERIENCE_REPLAY = "prioritized_experience_replay"
 VANILLA = "vanilla"
 
 # RL general terms
+STEP = "step"
 AVERAGE_RETURNS = "average_returns"
 CURR_EPISODE = "curr_episode"
 CUM_EPISODE_LENGTHS = "cum_episode_lengths"

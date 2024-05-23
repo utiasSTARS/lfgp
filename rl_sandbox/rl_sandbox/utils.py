@@ -4,11 +4,39 @@ import numpy as np
 import os
 import timeit
 import torch
+import glob
 
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 import rl_sandbox.constants as c
+
+
+def check_load_latest_checkpoint(experiment_config, save_path):
+    if experiment_config[c.LOAD_LATEST_CHECKPOINT]:
+        paths = glob.glob(os.path.join(save_path, '*'))
+        if len(paths) == 0:
+            print(f"Warning: load_latest_checkpoint set with no existing experiments at {save_path}, starting new experiment.")
+            add_time_tag_to_save_path = True
+            experiment_config[c.LOAD_LATEST_CHECKPOINT] = False
+        else:
+            latest_path = sorted(paths)[-1]
+            if not os.path.isfile(os.path.join(latest_path, f"{experiment_config[c.CHECKPOINT_NAME]}_buffer.pkl")):
+                print(f"Warning: load_latest_checkpoint set with no existing experiments at {save_path}, starting new experiment.")
+                add_time_tag_to_save_path = True
+                experiment_config[c.LOAD_LATEST_CHECKPOINT] = False
+            else:
+                save_path = latest_path
+                print(f"Loading latest checkpoint from {save_path}/{experiment_config[c.CHECKPOINT_NAME]}")
+                experiment_config[c.BUFFER_SETTING][c.LOAD_BUFFER] = os.path.join(
+                    save_path, f"{experiment_config[c.CHECKPOINT_NAME]}_buffer.pkl")
+                experiment_config[c.LOAD_MODEL] = os.path.join(
+                    save_path, f"{experiment_config[c.CHECKPOINT_NAME]}.pt")
+                add_time_tag_to_save_path = False
+    else:
+        add_time_tag_to_save_path = True
+
+    return save_path, add_time_tag_to_save_path
 
 
 class DummySummaryWriter():

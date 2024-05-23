@@ -333,7 +333,7 @@ def train(agent,
 
             # add data to buffer, first handle absorbing states
             if curr_obs[:, -1] == 1 and agent._use_absorbing_state:
-                act[:] = 0
+                action[:] = 0
 
             # real reward added to buffer, overwritten by IRL methods during sampling
             agent.learning_algorithm.buffer.push(

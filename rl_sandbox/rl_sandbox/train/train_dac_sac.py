@@ -14,7 +14,7 @@ from rl_sandbox.learning_utils import train
 from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.agents.rl_agents import ACAgent, ACAgentEUniformExplorer
 from rl_sandbox.transforms.general_transforms import Identity
-from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state
+from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
 
 def train_dac_sac(experiment_config):
@@ -22,21 +22,7 @@ def train_dac_sac(experiment_config):
     save_path = experiment_config.get(c.SAVE_PATH, None)
     buffer_preprocessing = experiment_config.get(c.BUFFER_PREPROCESSING, Identity())
 
-    if experiment_config[c.LOAD_LATEST_CHECKPOINT]:
-        paths = glob.glob(os.path.join(save_path, '*'))
-        if len(paths) == 0:
-            print(f"Warning: load_latest_checkpoint set with no existing experiments at {save_path}, starting new experiment.")
-            add_time_tag_to_save_path = True
-        else:
-            add_time_tag_to_save_path = False
-            save_path = sorted(paths)[-1]
-            print(f"Loading latest checkpoint from {save_path}/{experiment_config[c.CHECKPOINT_NAME]}")
-            experiment_config[c.BUFFER_SETTING][c.LOAD_BUFFER] = os.path.join(
-                save_path, f"{experiment_config[c.CHECKPOINT_NAME]}_buffer.pkl")
-            experiment_config[c.LOAD_MODEL] = os.path.join(
-                save_path, f"{experiment_config[c.CHECKPOINT_NAME]}.pt")
-    else:
-        add_time_tag_to_save_path = True
+    save_path, add_time_tag_to_save_path = check_load_latest_checkpoint(experiment_config, save_path)
 
     set_seed(seed)
     train_env = make_env(experiment_config[c.ENV_SETTING], seed)

@@ -51,6 +51,7 @@ def get_parser():
                              "buffer size is the median. If 'med_fixed, this is the median")
     parser.add_argument('--exponential_uniform_prop', type=float, default=0.5,
                         help="If exponential sampling is on, what proportion should be exponential vs. uniform.")
+    parser.add_argument('--num_gradient_updates', type=int, default=1, help="Num training steps per env step.")
 
     # env
     parser.add_argument('--env_type', type=str, choices=['manipulator_learning', 'sawyer', 'hand_dapg'],

@@ -207,11 +207,13 @@ def train(agent,
 
     if hasattr(evaluation_env, 'get_task_successes') and c.AUXILIARY_REWARDS in experiment_settings and \
             hasattr(experiment_settings[c.AUXILIARY_REWARDS], '_aux_rewards_str'):
+        # for lfgp/multitask case
         auxiliary_success = partial(
             evaluation_env.get_task_successes, tasks=experiment_settings[c.AUXILIARY_REWARDS]._aux_rewards_str)
     elif hasattr(evaluation_env, 'get_task_successes') and hasattr(evaluation_env, 'VALID_AUX_TASKS') and \
             (auxiliary_reward.__qualname__ in evaluation_env.VALID_AUX_TASKS or
              auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>'):
+        # for single task
         if auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>':
             auxiliary_success = partial(evaluation_env.get_task_successes, tasks=['main'])
         else:
@@ -306,9 +308,11 @@ def train(agent,
 
             env_tic = timeit.default_timer()
             if experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False):
-                # train_func = partial(agent.update, curr_obs, curr_h_state, action, reward, done, info, next_obs,
-                #                      next_h_state, update_buffer=False)
-                train_func = partial(agent.update, None, None, None, None, None, None, None, None, update_buffer=False)
+                if type(agent) == SACXAgent:
+                    train_func = partial(agent.update, None, None, None, None, None, None, None, None,
+                                         update_intentions=True, update_scheduler=False, update_buffer=False)
+                else:
+                    train_func = partial(agent.update, None, None, None, None, None, None, None, None, update_buffer=False)
                 next_obs, reward, done, env_info = train_env.step(env_action, train_func=train_func)
                 updated, update_info = train_env.get_train_update()
 
@@ -323,9 +327,14 @@ def train(agent,
                     sparse_rew(observation=curr_obs, action=action, env_info=env_info['infos'][-1])).astype(np.float32)
 
             else:
-                reward = np.atleast_1d(
-                    auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
-                                     next_observation=next_obs, info=env_info))
+                if experiment_settings[c.ENV_SETTING][c.ENV_TYPE] == c.MANIPULATOR_LEARNING:
+                    reward = np.atleast_1d(
+                        auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
+                                        next_observation=next_obs, info=env_info))
+                else:
+                    reward = np.atleast_1d(
+                        auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
+                                        next_observation=next_obs, info=env_info[c.INFOS][-1]))
 
             info = dict()
             info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, np.array([1]))
@@ -334,6 +343,11 @@ def train(agent,
             # add data to buffer, first handle absorbing states
             if curr_obs[:, -1] == 1 and agent._use_absorbing_state:
                 action[:] = 0
+
+            if experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False) and type(agent) == SACXAgent:
+                _, update_info = agent.update(
+                    curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state,
+                    update_intentions=False, update_scheduler=True, update_buffer=False, update_info=update_info)
 
             # real reward added to buffer, overwritten by IRL methods during sampling
             agent.learning_algorithm.buffer.push(

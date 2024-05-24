@@ -12,7 +12,6 @@ from rl_sandbox.model_architectures.actor_critics.fully_connected_soft_actor_cri
     FullyConnectedSquashedGaussianSAC
 import rl_sandbox.examples.lfgp.default_configs.common as common_default
 
-def reward_func(reward, **kwargs): return np.array([reward])
 
 def get_settings(args):
     if args.env_type == c.MANIPULATOR_LEARNING:
@@ -47,10 +46,9 @@ def get_settings(args):
             aux_reward_name = f"{task_name}_0"
 
         eval_reward = aux_reward_all._aux_rewards[aux_reward_names.index(aux_reward_name)]
-        # eval_reward = reward_func  # use this for env reward
 
     elif args.env_type in [c.SAWYER, c.HAND_DAPG, c.PANDA_RL_ENVS]:
-        eval_reward = reward_func
+        eval_reward = None  # uses env reward
 
     else:
         raise NotImplementedError("Not yet implemented for other env types")

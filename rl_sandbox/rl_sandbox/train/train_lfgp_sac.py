@@ -7,6 +7,7 @@ import glob
 
 import rl_sandbox.constants as c
 
+
 from rl_sandbox.agents.hrl_agents import SACXAgent
 from rl_sandbox.auxiliary_tasks.utils import make_auxiliary_tasks
 from rl_sandbox.algorithms.sac_x.intentions_update.dac_intentions import UpdateDACIntentions
@@ -21,6 +22,7 @@ from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.transforms.general_transforms import Identity
 from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
+from rl_sandbox.auxiliary_rewards.generic import FromEnvAuxiliaryReward
 
 
 def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers=False):
@@ -51,6 +53,7 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                                        experiment_config, experiment_config[c.DEVICE].index, discriminator)
         load_model = False  # so we don't do learning algorithm load later
 
+    # koopman aux tasks, not anything to do with lfgp
     aux_tasks = make_auxiliary_tasks(experiment_config[c.AUXILIARY_TASKS],
                                      intentions,
                                      buffer,
@@ -144,6 +147,10 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
         from rl_sandbox.train.transfer import transfer_pretrain
         import ipdb; ipdb.set_trace()
         transfer_pretrain(learning_algorithm, experiment_config, old_config, update_intentions)
+
+    if not hasattr(experiment_config[c.AUXILIARY_REWARDS], 'reward'):
+        aux_reward = FromEnvAuxiliaryReward(train_env, experiment_config[c.AUXILIARY_REWARDS])
+        experiment_config[c.AUXILIARY_REWARDS] = aux_reward
 
     if return_agent_only:
         return agent

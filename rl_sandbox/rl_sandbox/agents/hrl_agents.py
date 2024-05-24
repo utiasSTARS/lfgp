@@ -18,18 +18,15 @@ class HierarchicalRLAgent(ACAgent):
                          learning_algorithm=learning_algorithm,
                          preprocess=preprocess)
 
-    def update(self, curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state):
-        info[c.HIGH_LEVEL_OBSERVATION] = self.curr_high_level_obs
-        info[c.HIGH_LEVEL_HIDDEN_STATE] = self.curr_high_level_h_state
-        info[c.HIGH_LEVEL_ACTION] = self.curr_high_level_act
-        return self.learning_algorithm.update(curr_obs,
-                                              curr_h_state,
-                                              action,
-                                              reward,
-                                              done,
-                                              info,
-                                              next_obs,
-                                              next_h_state)
+    def update(self, curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state,
+               update_intentions=True, update_scheduler=True, update_buffer=True, **kwargs):
+        if update_scheduler:
+            info[c.HIGH_LEVEL_OBSERVATION] = self.curr_high_level_obs
+            info[c.HIGH_LEVEL_HIDDEN_STATE] = self.curr_high_level_h_state
+            info[c.HIGH_LEVEL_ACTION] = self.curr_high_level_act
+        return self.learning_algorithm.update(
+            curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state,
+            update_intentions, update_scheduler, update_buffer, **kwargs)
 
 
 class SACXAgent(HierarchicalRLAgent):

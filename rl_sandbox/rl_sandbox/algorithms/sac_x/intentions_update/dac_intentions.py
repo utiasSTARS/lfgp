@@ -210,7 +210,6 @@ class UpdateDACIntentions:
                             next_h_state=next_h_state)
 
         # The reward will be computed in the underlying policy learning algorithm
-        # NOTE: Disable _store_to_buffer in learning algorithm
         discriminator_update_info = {}
         if self.learning_algorithm.step >= self.learning_algorithm._buffer_warmup and \
                 self.algo_params.get(c.REWARD_MODEL, "discriminator") == "discriminator":

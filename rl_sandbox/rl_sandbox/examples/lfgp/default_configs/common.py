@@ -376,7 +376,7 @@ def get_train_settings(args, action_dim, device):
         c.GAMMA: args.discount_factor,
         c.LEARN_ALPHA: args.sac_alpha_mode == 'learned',
         c.MAX_GRAD_NORM: 10,
-        c.NUM_GRADIENT_UPDATES: 1,
+        c.NUM_GRADIENT_UPDATES: args.num_gradient_updates,
         c.NUM_PREFETCH: 1,
         c.REWARD_SCALING: args.reward_scaling,
         c.STEPS_BETWEEN_UPDATE: 1,

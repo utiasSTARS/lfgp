@@ -9,6 +9,7 @@ import rl_sandbox.auxiliary_rewards.rce_envs.sawyer as s_aux
 import rl_sandbox.auxiliary_rewards.rce_envs.door_human_v0 as door_aux
 import rl_sandbox.auxiliary_rewards.rce_envs.hammer_human_v0 as hammer_aux
 import rl_sandbox.auxiliary_rewards.rce_envs.relocate_human_v0 as relocate_aux
+import rl_sandbox.auxiliary_rewards.generic as generic_aux
 import rl_sandbox.constants as c
 import rl_sandbox.examples.lfgp.experiment_utils as exp_utils
 import rl_sandbox.examples.lfgp.transfer as transfer
@@ -92,9 +93,22 @@ def get_settings(args):
                                                                      aux_rewards=args.hand_dapg_aux_tasks.split(','))
         else:
             raise NotImplementedError(f"Aux reward not implemented for hand_dapg env {args.env_name}")
+    elif args.env_type == c.PANDA_RL_ENVS:
+        expert_filenames_list = args.expert_filenames.split(',')
+        aux_reward = []
+        for fn_str in expert_filenames_list:
+            fn_no_ext = fn_str.split('.gz')[0]
+            if fn_no_ext == args.env_name:
+                aux_reward.append('main')
+            else:
+                aux_reward.append(fn_no_ext.split('_')[-1])
     else:
         raise NotImplementedError("Not yet implemented for other env types!")
-    num_tasks = aux_reward.num_auxiliary_rewards
+
+    if args.env_type in [c.MANIPULATOR_LEARNING, c.SAWYER, c.HAND_DAPG]:
+        num_tasks = aux_reward.num_auxiliary_rewards
+    else:
+        num_tasks = len(aux_reward)
 
     # LfGP/SAC-X unchanging constants
     task_select_probs = [0.5 / (num_tasks - 1) for _ in range(num_tasks)]
@@ -131,7 +145,11 @@ def get_settings(args):
 
     # set scheduler
     if args.scheduler == "wrs_plus_handcraft":
-        if args.env_type == c.MANIPULATOR_LEARNING:
+        if args.env_type == c.PANDA_RL_ENVS:
+            raise NotImplementedError(f"handcraft scheduler not yet set up for panda rl envs!")
+            handcraft_traj_options = []
+            handcraft_traj_epsilon = 0
+        elif args.env_type == c.MANIPULATOR_LEARNING:
             handcraft_traj_epsilon = .5
             if args.main_task == 'insert_0':
                 handcraft_traj_options = [

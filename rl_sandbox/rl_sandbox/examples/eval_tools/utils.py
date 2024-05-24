@@ -55,6 +55,8 @@ def load_model(seed, config_path, model_path, intention=0, device="cpu", include
             config[c.DISCRIMINATOR_SETTING][c.KWARGS][c.DEVICE] = device
             config[c.BUFFER_SETTING][c.KWARGS][c.DEVICE] = device
 
+            config[c.LOAD_LATEST_CHECKPOINT] = False
+
             agent = train_lfgp_sac(config, return_agent_only=True, no_expert_buffers=True)
             discriminator = agent.learning_algorithm.update_intentions.discriminator
 

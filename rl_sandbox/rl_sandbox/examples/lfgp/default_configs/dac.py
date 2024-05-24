@@ -13,6 +13,8 @@ from rl_sandbox.model_architectures.actor_critics.fully_connected_soft_actor_cri
 import rl_sandbox.examples.lfgp.default_configs.common as common_default
 
 
+def reward_func(reward, **kwargs): return np.array([reward])
+
 def get_settings(args):
     if args.env_type == c.MANIPULATOR_LEARNING:
         common_default.main_task_alias_set(args)

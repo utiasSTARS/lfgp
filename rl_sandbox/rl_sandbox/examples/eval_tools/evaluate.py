@@ -26,7 +26,7 @@ from rl_sandbox.examples.eval_tools.utils import load_model
 from rl_sandbox.learning_utils import evaluate_policy
 from rl_sandbox.utils import set_seed
 from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler
-
+from rl_sandbox.auxiliary_rewards.generic import FromEnvAuxiliaryReward
 
 def evaluate(args):
     assert args.num_episodes > 0
@@ -53,7 +53,10 @@ def evaluate(args):
 
         # load up aux rewards and aux successes
         if c.AUXILIARY_REWARDS in config:
-            auxiliary_reward = config[c.AUXILIARY_REWARDS].reward
+            if not hasattr(config[c.AUXILIARY_REWARDS], 'reward'):
+                auxiliary_reward = FromEnvAuxiliaryReward(env, config[c.AUXILIARY_REWARDS]).reward
+            else:
+                auxiliary_reward = config[c.AUXILIARY_REWARDS].reward
             if hasattr(config[c.AUXILIARY_REWARDS], 'set_aux_rewards_str'):
                 config[c.AUXILIARY_REWARDS].set_aux_rewards_str()
         elif c.EVALUATION_REWARD_FUNC in config:  # handles BC and DAC

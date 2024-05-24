@@ -327,14 +327,14 @@ def train(agent,
                     sparse_rew(observation=curr_obs, action=action, env_info=env_info['infos'][-1])).astype(np.float32)
 
             else:
-                if experiment_settings[c.ENV_SETTING][c.ENV_TYPE] == c.MANIPULATOR_LEARNING:
-                    reward = np.atleast_1d(
-                        auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
-                                        next_observation=next_obs, info=env_info))
-                else:
-                    reward = np.atleast_1d(
-                        auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
-                                        next_observation=next_obs, info=env_info[c.INFOS][-1]))
+                # if experiment_settings[c.ENV_SETTING][c.ENV_TYPE] == c.MANIPULATOR_LEARNING:
+                #     reward = np.atleast_1d(
+                #         auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
+                #                         next_observation=next_obs, info=env_info))
+                # else:
+                reward = np.atleast_1d(
+                    auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
+                                    next_observation=next_obs, info=env_info[c.INFOS][-1]))
 
             info = dict()
             info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, np.array([1]))
@@ -616,12 +616,12 @@ def evaluate_policy(agent,
                                                                reward=reward,
                                                                done=done,
                                                                next_observation=next_obs,
-                                                               info=env_info))
+                                                               info=env_info[c.INFOS][-1]))
 
             if auxiliary_success is not None:
                 aux_successes[-1] = np.array(auxiliary_success(observation=curr_obs,
                                                                action=action,
-                                                               env_info=env_info['infos'][-1])).astype(int).tolist()
+                                                               env_info=env_info[c.INFOS][-1])).astype(int).tolist()
                 if success_ends_ep:
                     if hasattr(agent, "high_level_model") and (type(agent.high_level_model) == RecycleScheduler or
                             type(agent.high_level_model) == FixedScheduler):
@@ -634,7 +634,7 @@ def evaluate_policy(agent,
                         # also, to keep returns reasonably consistent, add the current return for "remaining" timesteps
                         eval_returns[-1] += np.atleast_1d(
                             auxiliary_reward(observation=curr_obs, action=action, reward=reward, done=done,
-                            next_observation=next_obs, info=env_info)) * (env.unwrapped._max_episode_steps - (ts + 1))
+                            next_observation=next_obs, info=env_info[c.INFOS][-1])) * (env.unwrapped._max_episode_steps - (ts + 1))
 
             else:
                 aux_successes[-1] = np.zeros(eval_returns[-1].shape)

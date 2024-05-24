@@ -148,7 +148,7 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
         import ipdb; ipdb.set_trace()
         transfer_pretrain(learning_algorithm, experiment_config, old_config, update_intentions)
 
-    if not hasattr(experiment_config[c.AUXILIARY_REWARDS], 'reward'):
+    if not hasattr(experiment_config[c.AUXILIARY_REWARDS], 'reward') and not return_agent_only:
         aux_reward = FromEnvAuxiliaryReward(train_env, experiment_config[c.AUXILIARY_REWARDS])
         experiment_config[c.AUXILIARY_REWARDS] = aux_reward
 

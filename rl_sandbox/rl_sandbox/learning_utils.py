@@ -26,7 +26,7 @@ from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper, chec
 def timer(): return timeit.default_timer()
 
 
-def checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns, last_buf_save_path,
+def checkpoint(save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns, last_buf_save_path,
                evaluation_successes_all_tasks, evaluation_successes, experiment_settings,
                learning_utils_tracking_dict,
                checkpoint_name="checkpoint", debug_print_time=False, save_buffer=True):
@@ -41,6 +41,7 @@ def checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_
         state_dict[k] = v
     torch.save(state_dict, curr_save_path)
     pickle.dump({c.RETURNS: returns if done else returns[:-1],
+                 c.SUCCESSES: successes if done else successes[:-1],
                  c.CUM_EPISODE_LENGTHS: cum_episode_lengths if done else cum_episode_lengths[:-1],
                  c.EVALUATION_RETURNS: evaluation_returns,
                  c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
@@ -159,6 +160,7 @@ def train(agent,
         c.NUM_UPDATES, c.DEFAULT_TRAIN_PARAMS[c.NUM_UPDATES]))
     returns = experiment_settings.get(
         c.RETURNS, c.DEFAULT_TRAIN_PARAMS[c.RETURNS])
+    successes = [False]
     cum_episode_lengths = experiment_settings.get(
         c.CUM_EPISODE_LENGTHS, c.DEFAULT_TRAIN_PARAMS[c.CUM_EPISODE_LENGTHS])
 
@@ -192,6 +194,7 @@ def train(agent,
         c.CURR_EPISODE: curr_episode,
         c.NUM_UPDATES: num_updates,
         c.RETURNS: returns,
+        c.SUCCESSES: successes,
         c.CUM_EPISODE_LENGTHS: cum_episode_lengths,
         c.EVALUATION_RETURNS: evaluation_returns,
         c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
@@ -260,6 +263,7 @@ def train(agent,
 
     try:
         returns.append(0)
+        successes.append(False)
         cum_episode_lengths.append(cum_episode_lengths[-1])
         curr_h_state = agent.reset()
         curr_obs = train_env.reset()
@@ -327,14 +331,13 @@ def train(agent,
                     sparse_rew(observation=curr_obs, action=action, env_info=env_info['infos'][-1])).astype(np.float32)
 
             else:
-                # if experiment_settings[c.ENV_SETTING][c.ENV_TYPE] == c.MANIPULATOR_LEARNING:
-                #     reward = np.atleast_1d(
-                #         auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
-                #                         next_observation=next_obs, info=env_info))
-                # else:
                 reward = np.atleast_1d(
                     auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
                                     next_observation=next_obs, info=env_info[c.INFOS][-1]))
+
+            if auxiliary_success is not None:
+                success = np.atleast_1d(
+                    auxiliary_success(observation=curr_obs, action=env_action, env_info=env_info[c.INFOS][-1]))
 
             info = dict()
             info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, np.array([1]))
@@ -368,6 +371,8 @@ def train(agent,
 
             returns[-1] += reward
             cum_episode_lengths[-1] += 1
+            if auxiliary_success is not None:
+                successes[-1] = success
 
             if updated:
                 num_updates += 1
@@ -399,6 +404,10 @@ def train(agent,
                 for task_i, task_i_ret in enumerate(returns[-1]):
                     summary_writer.add_scalar(
                         f"{c.INTERACTION_INFO}/task_{task_i}/{c.RETURNS}", task_i_ret, timestep_i + 1)
+                if auxiliary_success is not None:
+                    for task_i, task_i_suc in enumerate(successes[-1]):
+                        summary_writer.add_scalar(
+                            f"{c.INTERACTION_INFO}/task_{task_i}/{c.SUCCESSES}", task_i_suc, timestep_i + 1)
                 summary_writer.add_scalar(
                     f"{c.INTERACTION_INFO}/{c.EPISODE_LENGTHS}", episode_length, curr_episode)
 
@@ -412,12 +421,13 @@ def train(agent,
                 epoch_summary.log(f"{c.INTERACTION_INFO}/{c.EPISODE_LENGTHS}", episode_length)
 
                 returns.append(0)
+                successes.append(False)
                 cum_episode_lengths.append(cum_episode_lengths[-1])
                 curr_episode += 1
 
                 if experiment_settings[c.CHECKPOINT_EVERY_EP]:
                     last_buf_save_path = checkpoint(
-                        save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+                        save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns,
                         last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
                         experiment_settings, tracking_dict, checkpoint_name=experiment_settings[c.SAVE_CHECKPOINT_NAME])
 
@@ -489,14 +499,14 @@ def train(agent,
                 epoch_summary.new_epoch()
 
             if save_path is not None and curr_timestep % save_interval == 0:
-                last_buf_save_path = checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+                last_buf_save_path = checkpoint(save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns,
                            last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
                            experiment_settings, tracking_dict, checkpoint_name=curr_timestep,
                            save_buffer=not experiment_settings[c.CHECKPOINT_EVERY_EP])
                 print(f"Saved model to {save_path}/{curr_timestep}.pt")
     finally:
         if save_path is not None and not experiment_settings[c.CHECKPOINT_EVERY_EP]:
-            last_buf_save_path = checkpoint(save_path, agent, done, returns, cum_episode_lengths, evaluation_returns,
+            last_buf_save_path = checkpoint(save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns,
                            last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
                            experiment_settings, tracking_dict, checkpoint_name='termination')
             print(f"Saved model to {save_path}/termination.pt")

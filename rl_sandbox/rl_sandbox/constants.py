@@ -289,6 +289,7 @@ NUM_ITERS = "num_iters"
 NUM_STEPS = "num_steps"
 POLICY = "policy"
 RETURNS = "returns"
+SUCCESSES = "successes"
 VALUE = "value"
 BOOTSTRAP_ON_DONE = "bootstrap_on_done"
 

@@ -344,7 +344,7 @@ def train(agent,
             info.update(act_info)
 
             # add data to buffer, first handle absorbing states
-            if curr_obs[:, -1] == 1 and agent._use_absorbing_state:
+            if curr_obs[:, -1] == 1 and agent.learning_algorithm._use_absorbing_state:
                 action[:] = 0
 
             if experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False) and type(agent) == SACXAgent:

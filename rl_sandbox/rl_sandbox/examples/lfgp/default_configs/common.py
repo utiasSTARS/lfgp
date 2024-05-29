@@ -23,7 +23,7 @@ import rl_sandbox.constants as c
 
 def get_obs_action_dim(args):
     env_setting = get_env_settings(args)
-    dummy_env = make_env(env_setting)
+    dummy_env = make_env(env_setting, dummy_env=True)
     obs_dim = dummy_env.observation_space.shape[0]
     action_dim = dummy_env.action_space.shape[0]
     del dummy_env
@@ -297,7 +297,7 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
 
         # train parameters
         c.MAX_TOTAL_STEPS: max_total_steps,
-        c.TRAIN_RENDER: False,
+        c.TRAIN_RENDER: args.render,
     }
 
     return rl_settings

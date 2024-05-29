@@ -95,7 +95,10 @@ def train_dac_sac(experiment_config):
     evaluation_env = None
     evaluation_agent = None
     if experiment_config.get(c.EVALUATION_FREQUENCY, 0):
-        evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
+        if experiment_config[c.ENV_SETTING][c.ENV_TYPE] == c.PANDA_RL_ENVS:
+            evaluation_env = train_env
+        else:
+            evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
         evaluation_agent = ACAgent(model=model,
                                    learning_algorithm=None,
                                    preprocess=experiment_config[c.EVALUATION_PREPROCESSING])

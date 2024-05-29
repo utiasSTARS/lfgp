@@ -11,6 +11,11 @@ class SACX:
         self.buffer = update_intentions.buffer
         self.step = 0
 
+        if hasattr(self.update_intentions, '_use_absorbing_state'):
+            self._use_absorbing_state = self.update_intentions._use_absorbing_state
+        else:
+            self._use_absorbing_state = False
+
     def state_dict(self):
         state_dict = {
             c.SCHEDULER: self.update_scheduler.state_dict(),

@@ -128,7 +128,10 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
     evaluation_env = None
     evaluation_agent = None
     if experiment_config.get(c.EVALUATION_FREQUENCY, 0) and not return_agent_only:
-        evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
+        if experiment_config[c.ENV_SETTING][c.ENV_TYPE] == c.PANDA_RL_ENVS:
+            evaluation_env = train_env
+        else:
+            evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
         evaluation_agent = SACXAgent(scheduler=make_model(experiment_config[c.SCHEDULER_SETTING][c.EVALUATION]),
                                      intentions=intentions,
                                      learning_algorithm=None,

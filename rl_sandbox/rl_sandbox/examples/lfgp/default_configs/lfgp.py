@@ -146,9 +146,15 @@ def get_settings(args):
     # set scheduler
     if args.scheduler == "wrs_plus_handcraft":
         if args.env_type == c.PANDA_RL_ENVS:
-            raise NotImplementedError(f"handcraft scheduler not yet set up for panda rl envs!")
-            handcraft_traj_options = []
-            handcraft_traj_epsilon = 0
+            if 'Door' in args.env_name:
+                ma = 0; re = 1; gr = 2
+                handcraft_traj_epsilon = 1.0
+                handcraft_traj_options = [
+                    [re, gr, ma, ma, ma],
+                    [ma, ma, ma, ma, ma],
+                ]
+            else:
+                raise NotImplementedError("handcraft scheduler not yet set up for other panda rl envs!")
         elif args.env_type == c.MANIPULATOR_LEARNING:
             handcraft_traj_epsilon = .5
             if args.main_task == 'insert_0':

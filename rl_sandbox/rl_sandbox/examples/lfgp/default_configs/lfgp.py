@@ -96,11 +96,14 @@ def get_settings(args):
     elif args.env_type == c.PANDA_RL_ENVS:
         expert_filenames_list = args.expert_filenames.split(',')
         aux_reward = []
-        for fn_str in expert_filenames_list:
-            fn_no_ext = fn_str.split('.gz')[0]
-            if fn_no_ext == args.env_name:
+        for fn_i, fn_str in enumerate(expert_filenames_list):
+            if fn_i == 0:
                 aux_reward.append('main')
             else:
+                fn_no_ext = fn_str.split('.gz')[0]
+                # if fn_no_ext == args.env_name:
+                #     aux_reward.append('main')
+                # else:
                 aux_reward.append(fn_no_ext.split('_')[-1])
     else:
         raise NotImplementedError("Not yet implemented for other env types!")
@@ -146,7 +149,7 @@ def get_settings(args):
     # set scheduler
     if args.scheduler == "wrs_plus_handcraft":
         if args.env_type == c.PANDA_RL_ENVS:
-            if 'Door' in args.env_name or 'Drawer' in args.env_name:
+            if 'Door' in args.env_name:
                 ma = 0; re = 1; gr = 2
                 handcraft_traj_epsilon = 1.0
                 handcraft_traj_options = [
@@ -159,8 +162,18 @@ def get_settings(args):
                 if args.scheduler_period == 20:
                     handcraft_traj_options = [
                         [re, gr, ma],
+                        [re, gr, ma],
+                        [re, gr, ma],
                         [ma, ma, ma],
                     ]
+            elif args.env_name == 'PandaDrawerLongEp':
+                ma = 0; re = 1; gr = 2
+                handcraft_traj_epsilon = 0.5
+                if args.scheduler_period == 20:
+                    handcraft_traj_options = [
+                        [re, gr, ma] * 16
+                    ]
+                    handcraft_traj_options[0].extend([re, gr])
             else:
                 raise NotImplementedError("handcraft scheduler not yet set up for other panda rl envs!")
         elif args.env_type == c.MANIPULATOR_LEARNING:

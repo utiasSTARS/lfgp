@@ -53,6 +53,8 @@ class SACXAgent(HierarchicalRLAgent):
                                    c.ENTROPY: self.curr_high_level_entropy,
                                    c.MEAN: self.curr_high_level_mean,
                                    c.VARIANCE: self.curr_high_level_variance}
+        
+            # print(f"Sched: timestep {self._curr_timestep} -- high level act: {self.curr_high_level_act}")
 
         action, hidden_state, act_info = super().compute_action(obs, hidden_state)
         act_info[c.LOG_PROB] = act_info[c.LOG_PROB][self.curr_high_level_act]

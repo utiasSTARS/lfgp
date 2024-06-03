@@ -181,9 +181,9 @@ def str_to_kwargs(kwargs_str):
         key, arg = pair.split(':')
         arg = ast.literal_eval(arg)
         kwargs[key] = arg
-    
+
     return kwargs
-    
+
 def get_env_settings(args):
     # environment
     env_setting = {
@@ -289,7 +289,7 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         # Evaluation
         c.NUM_EVALUATION_EPISODES: num_evaluation_episodes,
         c.EVALUATION_FREQUENCY: args.eval_freq,
-        c.EVALUATION_RENDER: args.render,
+        c.EVALUATION_RENDER: args.eval_render,
         c.EVALUATION_RETURNS: [],
         c.EVALUATION_STOCHASTIC: args.eval_mode == 'sto',
 
@@ -298,7 +298,7 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         c.EXPLORATION_STRATEGY: exploration_strategy,
 
         # Logging
-        c.PRINT_INTERVAL: 5000,
+        c.PRINT_INTERVAL: args.print_interval,
         c.SAVE_INTERVAL: args.save_interval,
         c.LOG_INTERVAL: args.log_interval,
         c.CHECKPOINT_EVERY_EP: args.checkpoint_every_ep,

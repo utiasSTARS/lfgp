@@ -213,16 +213,21 @@ def train(agent,
         # for lfgp/multitask case
         auxiliary_success = partial(
             evaluation_env.get_task_successes, tasks=experiment_settings[c.AUXILIARY_REWARDS]._aux_rewards_str)
+        train_auxiliary_success = partial(
+            train_env.get_task_successes, tasks=experiment_settings[c.AUXILIARY_REWARDS]._aux_rewards_str)
     elif hasattr(evaluation_env, 'get_task_successes') and hasattr(evaluation_env, 'VALID_AUX_TASKS') and \
             (auxiliary_reward.__qualname__ in evaluation_env.VALID_AUX_TASKS or
              auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>'):
         # for single task
         if auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>':
             auxiliary_success = partial(evaluation_env.get_task_successes, tasks=['main'])
+            train_auxiliary_success = partial(train_env.get_task_successes, tasks=['main'])
         else:
             auxiliary_success = partial(evaluation_env.get_task_successes, tasks=[auxiliary_reward.__qualname__])
+            train_auxiliary_success = partial(train_env.get_task_successes, tasks=[auxiliary_reward.__qualname__])
     else:
         auxiliary_success = None
+        train_auxiliary_success = None
 
     if experiment_settings.get(c.REWARD_MODEL, None) == 'sparse':
         if hasattr(train_env, 'get_task_successes') and c.AUXILIARY_REWARDS in experiment_settings and \
@@ -335,9 +340,9 @@ def train(agent,
                     auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
                                     next_observation=next_obs, info=env_info[c.INFOS][-1]))
 
-            if auxiliary_success is not None:
+            if train_auxiliary_success is not None:
                 success = np.atleast_1d(
-                    auxiliary_success(observation=curr_obs, action=env_action, env_info=env_info[c.INFOS][-1]))
+                    train_auxiliary_success(observation=curr_obs, action=env_action, env_info=env_info[c.INFOS][-1]))
 
             info = dict()
             info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, np.array([1]))

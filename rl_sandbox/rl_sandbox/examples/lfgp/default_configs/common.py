@@ -305,6 +305,9 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         c.LOAD_LATEST_CHECKPOINT: args.load_latest_checkpoint,
         c.CHECKPOINT_NAME: args.checkpoint_name,
         c.SAVE_CHECKPOINT_NAME: args.save_checkpoint_name,
+        c.LOAD_BUFFER_NAME: args.load_buffer_name,
+        c.LOAD_MODEL_NAME: args.load_model_name,
+        c.LOAD_BUFFER_START_INDEX: args.load_buffer_start_index,
 
         # train parameters
         c.MAX_TOTAL_STEPS: max_total_steps,

@@ -95,6 +95,10 @@ def get_parser():
     parser.add_argument('--checkpoint_name', type=str, default='checkpoint', help="Checkpoint name for load_latest_checkpoint")
     parser.add_argument('--save_checkpoint_name', type=str, default='checkpoint', help="Checkpoint name for saving checkpoints")
     parser.add_argument('--checkpoint_every_ep', action='store_true', help="Save checkpoint after every ep to restart from")
+    parser.add_argument('--load_buffer_name', type=str, default='checkpoint',
+                        help="Buffer name for loading training jumpoff point")
+    parser.add_argument('--load_model_name', type=str, default="", help="Model plus tracking dict name for jumpoff point")
+    parser.add_argument('--load_buffer_start_index', type=int, default=-1, help="Starting buffer index for jumpoff point")
 
     # n step
     parser.add_argument('--n_step', type=int, default=1, help="If greater than 1, add an n-step loss to the q updates.")

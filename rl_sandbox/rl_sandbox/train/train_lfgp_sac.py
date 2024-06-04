@@ -20,7 +20,7 @@ from rl_sandbox.envs.utils import make_env
 from rl_sandbox.learning_utils import train
 from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.transforms.general_transforms import Identity
-from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint
+from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint, check_load_as_jumpoff_point
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
 from rl_sandbox.auxiliary_rewards.generic import FromEnvAuxiliaryReward
 
@@ -31,11 +31,16 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
     buffer_preprocessing = experiment_config.get(c.BUFFER_PREPROCESSING, Identity())
 
     save_path, add_time_tag_to_save_path = check_load_latest_checkpoint(experiment_config, save_path)
+    save_path, add_time_tag_to_save_path = check_load_as_jumpoff_point(experiment_config, save_path, add_time_tag_to_save_path)
+    buffer_end_idx = None
+    if experiment_config.get(c.LOAD_BUFFER_START_INDEX, -1) >= 0:
+        buffer_end_idx = experiment_config[c.LOAD_BUFFER_START_INDEX]
 
     set_seed(seed)
     if not return_agent_only:
         train_env = make_env(experiment_config[c.ENV_SETTING], seed)
-    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False))
+    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False),
+                         end_idx=buffer_end_idx)
 
     intentions = make_model(experiment_config[c.INTENTIONS_SETTING])
     policy_opt = make_optimizer(intentions.policy_parameters, experiment_config[c.OPTIMIZER_SETTING][c.INTENTIONS])

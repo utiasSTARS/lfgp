@@ -38,6 +38,31 @@ def check_load_latest_checkpoint(experiment_config, save_path):
 
     return save_path, add_time_tag_to_save_path
 
+def check_load_as_jumpoff_point(experiment_config, save_path, add_time_tag_to_save_path):
+    if experiment_config.get(c.LOAD_MODEL_NAME, "") != "":
+        paths = glob.glob(os.path.join(save_path, '*'))
+        if len(paths) == 0:
+            raise ValueError(f"No paths found at {save_path} to load jumpoff point from")
+        else:
+            latest_path = sorted(paths)[-1]
+            model_n = experiment_config[c.LOAD_MODEL_NAME]
+            buffer_n = experiment_config[c.LOAD_BUFFER_NAME]
+            print(f"Loading jumpoff point from {latest_path} with model name {model_n}, buffer name {buffer_n}")
+
+            experiment_config[c.BUFFER_SETTING][c.LOAD_BUFFER] = os.path.join(
+                latest_path, f"{buffer_n}_buffer.pkl")
+            experiment_config[c.LOAD_MODEL] = os.path.join(
+                latest_path, f"{model_n}.pt")
+            experiment_config[c.LOAD_TRACKING_DICT] = os.path.join(
+                latest_path, f"{model_n}_tracking_dict.pkl")
+
+            save_path = ('/').join(latest_path.split('/')[:-1]) + f'_from_{model_n}'
+
+        add_time_tag_to_save_path = True
+    else:
+        add_time_tag_to_save_path = add_time_tag_to_save_path
+
+    return save_path, add_time_tag_to_save_path
 
 class DummySummaryWriter():
     def add_scalar(self, arg_1, arg_2, arg_3):

@@ -14,7 +14,7 @@ from rl_sandbox.learning_utils import train
 from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.agents.rl_agents import ACAgent, ACAgentEUniformExplorer
 from rl_sandbox.transforms.general_transforms import Identity
-from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint
+from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint, check_load_as_jumpoff_point
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
 
 def train_dac_sac(experiment_config):
@@ -23,11 +23,16 @@ def train_dac_sac(experiment_config):
     buffer_preprocessing = experiment_config.get(c.BUFFER_PREPROCESSING, Identity())
 
     save_path, add_time_tag_to_save_path = check_load_latest_checkpoint(experiment_config, save_path)
+    save_path, add_time_tag_to_save_path = check_load_as_jumpoff_point(experiment_config, save_path, add_time_tag_to_save_path)
+    buffer_end_idx = None
+    if experiment_config.get(c.LOAD_BUFFER_START_INDEX, -1) >= 0:
+        buffer_end_idx = experiment_config[c.LOAD_BUFFER_START_INDEX]
 
     set_seed(seed)
     train_env = make_env(experiment_config[c.ENV_SETTING], seed)
     model = make_model(experiment_config[c.MODEL_SETTING])
-    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False))
+    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False),
+                         end_idx=buffer_end_idx)
 
     policy_opt = make_optimizer(model.policy_parameters, experiment_config[c.OPTIMIZER_SETTING][c.POLICY])
     qs_opt = make_optimizer(model.qs_parameters, experiment_config[c.OPTIMIZER_SETTING][c.QS])

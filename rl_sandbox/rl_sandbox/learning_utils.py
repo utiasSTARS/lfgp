@@ -280,10 +280,18 @@ def train(agent,
         epoch_summary = EpochSummary()
         epoch_summary.new_epoch()
 
+        loaded_tracking_dict = None
+
+        # Load tracking dict if we have a jumpoff point
+        if experiment_settings.get(c.LOAD_TRACKING_DICT, "") != "":
+            loaded_tracking_dict = pickle.load(open(experiment_settings[c.LOAD_TRACKING_DICT], 'rb'))
+
         # Loading checkpoint variables by setting references from dict...bit of a hack
-        if experiment_settings[c.LOAD_LATEST_CHECKPOINT]:
+        if experiment_settings.get(c.LOAD_LATEST_CHECKPOINT, False):
             loaded_tracking_dict = pickle.load(open(
                 os.path.join(save_path, f'{experiment_settings[c.CHECKPOINT_NAME]}_tracking_dict.pkl'), 'rb'))
+
+        if loaded_tracking_dict is not None:
             for k, v in loaded_tracking_dict.items():
                 # also set the local variable, in addition to the dictionary object, since same reference
                 if type(v) == np.ndarray and v.shape == ():

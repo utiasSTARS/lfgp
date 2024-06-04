@@ -156,7 +156,7 @@ def get_settings(args):
                     [re, gr, ma, ma, ma],
                     [ma, ma, ma, ma, ma],
                 ]
-            elif args.env_name == 'PandaDrawer':
+            elif args.env_name in ['PandaDrawer', 'PandaDrawerLine']:
                 ma = 0; re = 1; gr = 2
                 handcraft_traj_epsilon = 1.0
                 if args.scheduler_period == 20:
@@ -166,13 +166,15 @@ def get_settings(args):
                         [re, gr, ma],
                         [ma, ma, ma],
                     ]
-            elif args.env_name == 'PandaDrawerLongEp':
+            elif args.env_name in ['PandaDrawerLongEp', 'PandaDrawerLineLongEp']:
                 ma = 0; re = 1; gr = 2
                 handcraft_traj_epsilon = 0.5
                 if args.scheduler_period == 20:
-                    handcraft_traj_options = [
-                        [re, gr, ma] * 16
-                    ]
+                    handcraft_traj_options = [[ma, ma, ma]]
+                    handcraft_traj_options[0].extend([re, gr, ma] * 15)
+                    # handcraft_traj_options = [
+                    #     [re, gr, ma] * 16
+                    # ]
                     handcraft_traj_options[0].extend([re, gr])
             else:
                 raise NotImplementedError("handcraft scheduler not yet set up for other panda rl envs!")

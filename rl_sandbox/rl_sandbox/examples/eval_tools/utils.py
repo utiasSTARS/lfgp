@@ -1,6 +1,8 @@
 import _pickle as pickle
 import os
 import torch
+from functools import partial
+import numpy as np
 
 import rl_sandbox.constants as c
 
@@ -16,7 +18,8 @@ from rl_sandbox.auxiliary_rewards.generic import FromEnvAuxiliaryReward
 def get_aux_rew_aux_suc(config, env):
     if c.AUXILIARY_REWARDS in config:
         if not hasattr(config[c.AUXILIARY_REWARDS], 'reward'):
-            auxiliary_reward = FromEnvAuxiliaryReward(env, config[c.AUXILIARY_REWARDS]).reward
+            config[c.AUXILIARY_REWARDS] = FromEnvAuxiliaryReward(env, config[c.AUXILIARY_REWARDS])
+            auxiliary_reward = config[c.AUXILIARY_REWARDS].reward
         else:
             auxiliary_reward = config[c.AUXILIARY_REWARDS].reward
         if hasattr(config[c.AUXILIARY_REWARDS], 'set_aux_rewards_str'):
@@ -28,7 +31,7 @@ def get_aux_rew_aux_suc(config, env):
 
     if auxiliary_reward is None:
         auxiliary_reward = lambda reward, **kwargs: np.array([reward])
-
+    
     if hasattr(env, 'get_task_successes') and c.AUXILIARY_REWARDS in config and \
             hasattr(config[c.AUXILIARY_REWARDS], '_aux_rewards_str'):
         # for lfgp/multitask case

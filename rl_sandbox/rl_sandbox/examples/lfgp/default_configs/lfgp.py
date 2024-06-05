@@ -149,14 +149,7 @@ def get_settings(args):
     # set scheduler
     if args.scheduler == "wrs_plus_handcraft":
         if args.env_type == c.PANDA_RL_ENVS:
-            if 'Door' in args.env_name:
-                ma = 0; re = 1; gr = 2
-                handcraft_traj_epsilon = 1.0
-                handcraft_traj_options = [
-                    [re, gr, ma, ma, ma],
-                    [ma, ma, ma, ma, ma],
-                ]
-            elif args.env_name in ['PandaDrawer', 'PandaDrawerLine']:
+            if args.env_name in ['PandaDrawer', 'PandaDrawerLine']:
                 ma = 0; re = 1; gr = 2
                 handcraft_traj_epsilon = 1.0
                 if args.scheduler_period == 20:
@@ -166,7 +159,10 @@ def get_settings(args):
                         [re, gr, ma],
                         [ma, ma, ma],
                     ]
-            elif args.env_name in ['PandaDrawerLongEp', 'PandaDrawerLineLongEp']:
+            elif args.env_name in [
+                'PandaDoorAngle', 'PandaDoorAngleLongEp', 'PandaDoor', 
+                'PandaDoorLongEp', 'PandaDrawerLongEp', 'PandaDrawerLineLongEp'
+            ]:
                 ma = 0; re = 1; gr = 2
                 handcraft_traj_epsilon = 0.5
                 if args.scheduler_period == 20:

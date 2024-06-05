@@ -54,7 +54,8 @@ class SACXAgent(HierarchicalRLAgent):
                                    c.MEAN: self.curr_high_level_mean,
                                    c.VARIANCE: self.curr_high_level_variance}
         
-            # print(f"Sched: timestep {self._curr_timestep} -- high level act: {self.curr_high_level_act}")
+            if self.learning_algorithm.algo_params[c.ENV_SETTING][c.ENV_TYPE] == c.PANDA_RL_ENVS:
+                print(f"Sched: timestep {self._curr_timestep} -- high level act: {self.curr_high_level_act}")
 
         action, hidden_state, act_info = super().compute_action(obs, hidden_state)
         act_info[c.LOG_PROB] = act_info[c.LOG_PROB][self.curr_high_level_act]

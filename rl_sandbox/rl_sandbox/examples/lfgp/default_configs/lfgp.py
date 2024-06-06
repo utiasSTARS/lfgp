@@ -161,11 +161,12 @@ def get_settings(args):
                     ]
             elif args.env_name in [
                 'PandaDoorAngle', 'PandaDoorAngleLongEp', 'PandaDoor', 
-                'PandaDoorLongEp', 'PandaDrawerLongEp', 'PandaDrawerLineLongEp'
+                'PandaDoorLongEp', 'PandaDrawerLongEp', 'PandaDrawerLineLongEp',
+                'PandaDoorNoJamAngle', 'PandaDoorNoJamAngleLongEp'
             ]:
                 ma = 0; re = 1; gr = 2
                 handcraft_traj_epsilon = 0.5
-                if args.scheduler_period == 20:
+                if args.scheduler_period == 20 or args.scheduler_period == 30:
                     handcraft_traj_options = [[ma, ma, ma]]
                     handcraft_traj_options[0].extend([re, gr, ma] * 15)
                     # handcraft_traj_options = [

@@ -24,6 +24,8 @@ stack_height = .185
 
 include_unstack_in_aux = True
 
+action_repeat_fix_infos = False
+
 # for grip pos, 1 is fully open, 0 is fully closed, .52-.53 is closed on block
 
 
@@ -92,7 +94,10 @@ def close_open_gen(open_bool, include_reach, obs_act_only=False):
             total_rew *= int(reach_dist <= require_reach_radius)
 
         if include_pos_limits_penalty and not obs_act_only:
-            e_info = info["infos"][-1]
+            if action_repeat_fix_infos:
+                e_info = info["infos"][-1]
+            else:
+                e_info = info
             total_rew += pos_limits_penalty(e_info, action)
 
         return total_rew
@@ -122,7 +127,10 @@ def unstack_gen(block=0, include_reach_bonus=all_rew_include_dense_reach, obs_ac
             e_info['grip_pos'] = observation[grip_pos_slice]
             e_info['pos'] = observation[pos_slice]
         else:
-            e_info = info["infos"][-1]
+            if action_repeat_fix_infos:
+                e_info = info["infos"][-1]
+            else:
+                e_info = info
 
         block_height = max(e_info['obj_pos'][block_inds[block]][2] - tray_block_height, 0)  # max in case block "sinks" thru tray
         b_pos = e_info['obj_pos'][block_inds[block]]
@@ -183,7 +191,10 @@ def bring_gen(block=0, include_reach_bonus=all_rew_include_dense_reach, bring_po
             e_info['bring_goal_poss'] = np.array([[.075, .5, .145], [-.075, .5, .145]])
             e_info['insert_goal_poss'] = np.array([[.075, .5, .135], [-.075, .5, .135]])
         else:
-            e_info = info["infos"][-1]
+            if action_repeat_fix_infos:
+                e_info = info["infos"][-1]
+            else:
+                e_info = info
         e_info['pick_and_place_goal_poss'] = np.array(
             [observation[pick_and_place_target_slice]])  # will break on object 1
         b_pos = e_info['obj_pos'][block_inds[block]]
@@ -252,7 +263,10 @@ pick_and_place_0 = pick_and_place_gen(0)
 def lift_gen(block=0, max_rew_height=.08, block_on_table_height=.145, close_shaping=True,
              include_reach_bonus=all_rew_include_dense_reach):
     def lift(info, action, **kwargs):
-        e_info = info["infos"][-1]
+        if action_repeat_fix_infos:
+            e_info = info["infos"][-1]
+        else:
+            e_info = info
         block_height = e_info['obj_pos'][block_inds[block]][2] - block_on_table_height
         b_pos = e_info['obj_pos'][block_inds[block]]
         arm_pos = e_info['pos']
@@ -325,7 +339,10 @@ def stack_gen(block=0, block_on_table_height=.145, include_reach_bonus=all_rew_i
             else:
                 e_info['obj_vel'] = observation[obj_vel_slice]
         else:
-            e_info = info["infos"][-1]
+            if action_repeat_fix_infos:
+                e_info = info["infos"][-1]
+            else:
+                e_info = info
         b_pos = e_info['obj_pos'][block_inds[block]]
         stack_above = e_info['obj_pos'][block_inds[1 - block]] + np.array([0, 0, .041])
         stack_close = close(0.005, b_pos, stack_above)
@@ -406,7 +423,10 @@ stack_pp_env_1 = stack_gen(1, pick_and_place_env=True)
 # REACH AUX
 def reach_gen(block=0):
     def reach(info, action, **kwargs):
-        e_info = info["infos"][-1]
+        if action_repeat_fix_infos:
+            e_info = info["infos"][-1]
+        else:
+            e_info = info
         close_rew = close(0.0, e_info['obj_pos'][block_inds[block]], e_info['pos'])
 
         if include_pos_limits_penalty:
@@ -431,7 +451,10 @@ reach_1 = reach_gen(1)
 # TOGETHER AUX
 def blocks_together(info, action, include_reach_bonus=all_rew_include_dense_reach, **kwargs):
     """ Same as bring: only gives reward if either one block is reached, or if both blocks are together """
-    e_info = info["infos"][-1]
+    if action_repeat_fix_infos:
+        e_info = info["infos"][-1]
+    else:
+        e_info = info
     b0_pos = e_info['obj_pos'][block_inds[0]]
     b1_pos = e_info['obj_pos'][block_inds[1]]
     arm_pos = e_info['pos']
@@ -465,7 +488,10 @@ def blocks_together(info, action, include_reach_bonus=all_rew_include_dense_reac
 def move_obj_gen(block=0, require_reach=True, include_lift_bonus=True, block_on_table_height=.145,
                  include_reach_bonus=all_rew_include_dense_reach, acc_pen_mult=.1):
     def move_obj(info, action, **kwargs):
-        e_info = info["infos"][-1]
+        if action_repeat_fix_infos:
+            e_info = info["infos"][-1]
+        else:
+            e_info = info
         obj_t_vel_mag = 5 * np.linalg.norm(e_info['obj_vel'][block_vel_inds[block]])  # since .3 is max, scale by 5
         b_pos = e_info['obj_pos'][block_inds[block]]
         arm_pos = e_info['pos']

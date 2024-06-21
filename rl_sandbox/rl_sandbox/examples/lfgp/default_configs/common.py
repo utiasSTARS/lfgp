@@ -23,7 +23,7 @@ import rl_sandbox.constants as c
 
 def get_obs_action_dim(args):
     env_setting = get_env_settings(args)
-    dummy_env = make_env(env_setting)
+    dummy_env = make_env(env_setting, dummy_env=True)
     obs_dim = dummy_env.observation_space.shape[0]
     action_dim = dummy_env.action_space.shape[0]
     del dummy_env
@@ -174,6 +174,16 @@ def get_discriminator_settings(args, obs_dim, action_dim, num_tasks, device):
 
     return discriminator_settings
 
+def str_to_kwargs(kwargs_str):
+    kwargs = {}
+    kwargs_combos = kwargs_str.split(',')
+    for pair in kwargs_combos:
+        key, arg = pair.split(':')
+        arg = ast.literal_eval(arg)
+        kwargs[key] = arg
+
+    return kwargs
+
 def get_env_settings(args):
     # environment
     env_setting = {
@@ -237,6 +247,10 @@ def get_env_settings(args):
                 'hand_dapg_dp_kwargs': hand_dapg_dp_kwargs
             }
 
+    elif args.env_type == c.PANDA_RL_ENVS:
+        env_setting[c.ENV_BASE] = {c.ENV_NAME: args.env_name}
+
+
     return env_setting
 
 def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
@@ -270,11 +284,12 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         c.MAX_ACTION: max_action,
         c.MAX_EPISODE_LENGTH: args.max_episode_length,
         c.OBS_DIM: obs_dim,
+        c.TRAIN_DURING_ENV_STEP: args.train_during_env_step,
 
         # Evaluation
         c.NUM_EVALUATION_EPISODES: num_evaluation_episodes,
         c.EVALUATION_FREQUENCY: args.eval_freq,
-        c.EVALUATION_RENDER: args.render,
+        c.EVALUATION_RENDER: args.eval_render,
         c.EVALUATION_RETURNS: [],
         c.EVALUATION_STOCHASTIC: args.eval_mode == 'sto',
 
@@ -283,13 +298,20 @@ def get_rl_settings(args, obs_dim, action_dim, num_evaluation_episodes):
         c.EXPLORATION_STRATEGY: exploration_strategy,
 
         # Logging
-        c.PRINT_INTERVAL: 5000,
+        c.PRINT_INTERVAL: args.print_interval,
         c.SAVE_INTERVAL: args.save_interval,
         c.LOG_INTERVAL: args.log_interval,
+        c.CHECKPOINT_EVERY_EP: args.checkpoint_every_ep,
+        c.LOAD_LATEST_CHECKPOINT: args.load_latest_checkpoint,
+        c.CHECKPOINT_NAME: args.checkpoint_name,
+        c.SAVE_CHECKPOINT_NAME: args.save_checkpoint_name,
+        c.LOAD_BUFFER_NAME: args.load_buffer_name,
+        c.LOAD_MODEL_NAME: args.load_model_name,
+        c.LOAD_BUFFER_START_INDEX: args.load_buffer_start_index,
 
         # train parameters
         c.MAX_TOTAL_STEPS: max_total_steps,
-        c.TRAIN_RENDER: False,
+        c.TRAIN_RENDER: args.render,
     }
 
     return rl_settings
@@ -368,7 +390,7 @@ def get_train_settings(args, action_dim, device):
         c.GAMMA: args.discount_factor,
         c.LEARN_ALPHA: args.sac_alpha_mode == 'learned',
         c.MAX_GRAD_NORM: 10,
-        c.NUM_GRADIENT_UPDATES: 1,
+        c.NUM_GRADIENT_UPDATES: args.num_gradient_updates,
         c.NUM_PREFETCH: 1,
         c.REWARD_SCALING: args.reward_scaling,
         c.STEPS_BETWEEN_UPDATE: 1,

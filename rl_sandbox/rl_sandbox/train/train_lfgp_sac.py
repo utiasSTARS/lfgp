@@ -3,8 +3,10 @@ import _pickle as pickle
 import torch
 import json
 import os
+import glob
 
 import rl_sandbox.constants as c
+
 
 from rl_sandbox.agents.hrl_agents import SACXAgent
 from rl_sandbox.auxiliary_tasks.utils import make_auxiliary_tasks
@@ -18,8 +20,9 @@ from rl_sandbox.envs.utils import make_env
 from rl_sandbox.learning_utils import train
 from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.transforms.general_transforms import Identity
-from rl_sandbox.utils import make_summary_writer, set_seed
+from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint, check_load_as_jumpoff_point
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
+from rl_sandbox.auxiliary_rewards.generic import FromEnvAuxiliaryReward
 
 
 def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers=False):
@@ -27,10 +30,17 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
     save_path = experiment_config.get(c.SAVE_PATH, None)
     buffer_preprocessing = experiment_config.get(c.BUFFER_PREPROCESSING, Identity())
 
+    save_path, add_time_tag_to_save_path = check_load_latest_checkpoint(experiment_config, save_path)
+    save_path, add_time_tag_to_save_path = check_load_as_jumpoff_point(experiment_config, save_path, add_time_tag_to_save_path)
+    buffer_end_idx = None
+    if experiment_config.get(c.LOAD_BUFFER_START_INDEX, -1) >= 0:
+        buffer_end_idx = experiment_config[c.LOAD_BUFFER_START_INDEX]
+
     set_seed(seed)
     if not return_agent_only:
         train_env = make_env(experiment_config[c.ENV_SETTING], seed)
-    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False))
+    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False),
+                         end_idx=buffer_end_idx)
 
     intentions = make_model(experiment_config[c.INTENTIONS_SETTING])
     policy_opt = make_optimizer(intentions.policy_parameters, experiment_config[c.OPTIMIZER_SETTING][c.INTENTIONS])
@@ -48,6 +58,7 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                                        experiment_config, experiment_config[c.DEVICE].index, discriminator)
         load_model = False  # so we don't do learning algorithm load later
 
+    # koopman aux tasks, not anything to do with lfgp
     aux_tasks = make_auxiliary_tasks(experiment_config[c.AUXILIARY_TASKS],
                                      intentions,
                                      buffer,
@@ -110,7 +121,9 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                               algo_params=experiment_config)
 
     if load_model:
-        learning_algorithm.load_state_dict(torch.load(load_model, map_location=experiment_config[c.DEVICE]))
+        state_dict = torch.load(load_model, map_location=experiment_config[c.DEVICE])
+        learning_algorithm.load_state_dict(state_dict)
+        set_rng_state(state_dict[c.TORCH_RNG_STATE], state_dict[c.NP_RNG_STATE])
 
     agent = SACXAgent(scheduler=scheduler,
                       intentions=intentions,
@@ -120,7 +133,10 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
     evaluation_env = None
     evaluation_agent = None
     if experiment_config.get(c.EVALUATION_FREQUENCY, 0) and not return_agent_only:
-        evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
+        if experiment_config[c.ENV_SETTING][c.ENV_TYPE] == c.PANDA_RL_ENVS:
+            evaluation_env = train_env
+        else:
+            evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
         evaluation_agent = SACXAgent(scheduler=make_model(experiment_config[c.SCHEDULER_SETTING][c.EVALUATION]),
                                      intentions=intentions,
                                      learning_algorithm=None,
@@ -128,7 +144,9 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
                                      preprocess=experiment_config[c.EVALUATION_PREPROCESSING])
 
     if not return_agent_only:
-        summary_writer, save_path = make_summary_writer(save_path=save_path, algo=c.LFGP_NS if isinstance(scheduler, FixedScheduler) else c.LFGP, cfg=experiment_config)
+        summary_writer, save_path = make_summary_writer(
+            save_path=save_path, algo=c.LFGP_NS if isinstance(scheduler, FixedScheduler) else c.LFGP,
+            cfg=experiment_config, add_time_tag=add_time_tag_to_save_path)
 
     if load_transfer_exp_settings:
         if not load_model:
@@ -137,6 +155,10 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
         from rl_sandbox.train.transfer import transfer_pretrain
         import ipdb; ipdb.set_trace()
         transfer_pretrain(learning_algorithm, experiment_config, old_config, update_intentions)
+
+    if not hasattr(experiment_config[c.AUXILIARY_REWARDS], 'reward') and not return_agent_only:
+        aux_reward = FromEnvAuxiliaryReward(train_env, experiment_config[c.AUXILIARY_REWARDS])
+        experiment_config[c.AUXILIARY_REWARDS] = aux_reward
 
     if return_agent_only:
         return agent

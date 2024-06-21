@@ -6,7 +6,7 @@ os.environ["MUJOCO_GL"] = "egl"
 import rl_sandbox.constants as c
 from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper
 
-def make_env(env_config, seed=None):
+def make_env(env_config, seed=None, dummy_env=False):
     assert env_config[c.ENV_TYPE] in c.VALID_ENV_TYPE
     if env_config[c.ENV_TYPE] == c.GYM:
         import gym
@@ -22,6 +22,13 @@ def make_env(env_config, seed=None):
     elif env_config[c.ENV_TYPE] in [c.SAWYER, c.HAND_DAPG]:
         import rl_sandbox.envs.rce_envs as rce_envs
         env = rce_envs.load_env(env_config[c.ENV_BASE][c.ENV_NAME], gym_env=True, **env_config.get(c.KWARGS, {}))
+    elif env_config[c.ENV_TYPE] == c.PANDA_RL_ENVS:
+        import panda_rl_envs
+        env_kwargs = env_config.get(c.KWARGS, {})
+        env_config_dict = env_kwargs.get("config_dict", {})
+        env_config_dict['dummy_env'] = dummy_env
+        env_kwargs['config_dict'] = env_config_dict
+        env = getattr(panda_rl_envs, env_config[c.ENV_BASE][c.ENV_NAME])(**env_kwargs)
     else:
         raise NotImplementedError
 

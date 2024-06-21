@@ -88,11 +88,12 @@ class SACDAC(SAC):
         # for debugging
         num_latest_done = 5
         latest_dones = self.buffer.dones.nonzero()[-num_latest_done:, 0]
-        with torch.no_grad():
-            _, q_latest_dones, _, _ = self.model.q_vals(
-                self.buffer.observations[latest_dones][:, None, :], h_states[:num_latest_done],
-                self.buffer.actions[latest_dones], lengths=1)
-            update_info[c.AVG_DONE_Q].append(q_latest_dones.mean().detach().cpu().numpy())
+        if len(latest_dones) >= num_latest_done:
+            with torch.no_grad():
+                _, q_latest_dones, _, _ = self.model.q_vals(
+                    self.buffer.observations[latest_dones][:, None, :], h_states[:num_latest_done],
+                    self.buffer.actions[latest_dones], lengths=1)
+                update_info[c.AVG_DONE_Q].append(q_latest_dones.mean().detach().cpu().numpy())
 
         # if we want to bootstrap even if "done", set dones to zero
         if self._bootstrap_on_done:

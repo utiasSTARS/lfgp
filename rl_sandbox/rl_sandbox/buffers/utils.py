@@ -57,3 +57,28 @@ def make_buffer(buffer_cfg, seed=None, load_buffer=False, start_idx=0, end_idx=N
             buffer_cfg[c.KWARGS][c.MEMORY_SIZE] = original_size
 
     return buffer
+
+
+def get_default_buffer(memory_size, obs_dim, action_dim):
+    buffer_settings = {
+        c.KWARGS: {
+            c.MEMORY_SIZE: memory_size,
+            c.OBS_DIM: (obs_dim,),
+            c.H_STATE_DIM: (1,),
+            c.ACTION_DIM: (action_dim,),
+            c.REWARD_DIM: (1,),
+            c.INFOS: {c.MEAN: ((action_dim,), np.float32),
+                        c.VARIANCE: ((action_dim,), np.float32),
+                        c.ENTROPY: ((action_dim,), np.float32),
+                        c.LOG_PROB: ((1,), np.float32),
+                        c.VALUE: ((1,), np.float32),
+                        c.DISCOUNTING: ((1,), np.float32)},
+            c.CHECKPOINT_INTERVAL: 0,
+            c.CHECKPOINT_PATH: None,
+        },
+        c.STORAGE_TYPE: c.RAM,
+        c.BUFFER_TYPE: c.STORE_NEXT_OBSERVATION,
+        c.BUFFER_WRAPPERS: [],
+        c.LOAD_BUFFER: False,
+    }
+    return make_buffer(buffer_settings)

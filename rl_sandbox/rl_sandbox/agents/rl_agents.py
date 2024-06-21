@@ -12,7 +12,7 @@ class RLAgent():
         self.model = model
         self.learning_algorithm = learning_algorithm
 
-    def update(self, curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state):
+    def update(self, curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state, **kwargs):
         return self.learning_algorithm.update(curr_obs,
                                               curr_h_state,
                                               action,
@@ -20,7 +20,8 @@ class RLAgent():
                                               done,
                                               info,
                                               next_obs,
-                                              next_h_state)
+                                              next_h_state,
+                                              **kwargs)
 
     def compute_action(self, obs, **kwargs):
         raise NotImplementedError

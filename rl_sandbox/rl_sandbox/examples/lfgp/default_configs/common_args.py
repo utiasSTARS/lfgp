@@ -10,10 +10,12 @@ def get_parser():
     parser.add_argument('--seed', type=int, default=100, help="Random seed")
     parser.add_argument('--device', type=str, default="cpu", help="device to use")
     parser.add_argument('--render', action='store_true', default=False, help="Render training")
+    parser.add_argument('--eval_render', action='store_true', default=False, help="Render evaluation")
     parser.add_argument('--max_steps', type=int, default=2000000, help="Number of steps to interact with")
     parser.add_argument('--memory_size', type=int, default=2000000, help="Memory size of buffer")
     parser.add_argument('--eval_freq', type=int, default=100000, help="The frequency of evaluating the performance of the current policy")
     parser.add_argument('--num_evals_per_task', type=int, default=50, help="Number of evaluation episodes per task")
+    parser.add_argument('--print_interval', type=int, default=5000, help="Print interval for terminal stats.")
     parser.add_argument('--log_interval', type=int, default=5000, help="Log interval for tensorboard.")
     parser.add_argument('--save_interval', type=int, default=200000, help="Model save interval.")
     parser.add_argument('--buffer_warmup', type=int, default=25000, help="Buffer warmup before starting training.")
@@ -51,6 +53,7 @@ def get_parser():
                              "buffer size is the median. If 'med_fixed, this is the median")
     parser.add_argument('--exponential_uniform_prop', type=float, default=0.5,
                         help="If exponential sampling is on, what proportion should be exponential vs. uniform.")
+    parser.add_argument('--num_gradient_updates', type=int, default=1, help="Num training steps per env step.")
 
     # env
     parser.add_argument('--env_type', type=str, choices=['manipulator_learning', 'sawyer', 'hand_dapg'],
@@ -63,6 +66,8 @@ def get_parser():
                         # default=('pos,vel,grip_pos,prev_grip_pos,obj_pos,obj_rot,obj_vel,obj_rot_vel,force_torque'),
                         default=('pos,vel,grip_pos,prev_grip_pos,obj_pos,obj_rot,obj_vel,obj_rot_vel'),
                                      help="Things included in state (for play env)")
+    parser.add_argument('--train_during_env_step', action='store_true',
+                    help="(for non-sim envs) Perform train/backwards pass during env step delay between act exec and obs gen")
 
     # expert data
     parser.add_argument('--expert_top_dir', type=str, default='../../lfgp_data/expert_data/')
@@ -86,6 +91,14 @@ def get_parser():
     parser.add_argument('--top_save_path', type=str, default='results', help="Top directory for saving results")
     parser.add_argument('--exp_name', type=str, default="", help="String corresponding to the experiment name")
     parser.add_argument('--gpu_buffer', action='store_true', default=False, help="Store buffers on gpu.")
+    parser.add_argument('--load_latest_checkpoint', action='store_true', help="Continue training latest exp_name checkpoint")
+    parser.add_argument('--checkpoint_name', type=str, default='checkpoint', help="Checkpoint name for load_latest_checkpoint")
+    parser.add_argument('--save_checkpoint_name', type=str, default='checkpoint', help="Checkpoint name for saving checkpoints")
+    parser.add_argument('--checkpoint_every_ep', action='store_true', help="Save checkpoint after every ep to restart from")
+    parser.add_argument('--load_buffer_name', type=str, default='checkpoint',
+                        help="Buffer name for loading training jumpoff point")
+    parser.add_argument('--load_model_name', type=str, default="", help="Model plus tracking dict name for jumpoff point")
+    parser.add_argument('--load_buffer_start_index', type=int, default=-1, help="Starting buffer index for jumpoff point")
 
     # n step
     parser.add_argument('--n_step', type=int, default=1, help="If greater than 1, add an n-step loss to the q updates.")

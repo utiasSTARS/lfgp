@@ -18,18 +18,15 @@ class HierarchicalRLAgent(ACAgent):
                          learning_algorithm=learning_algorithm,
                          preprocess=preprocess)
 
-    def update(self, curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state):
-        info[c.HIGH_LEVEL_OBSERVATION] = self.curr_high_level_obs
-        info[c.HIGH_LEVEL_HIDDEN_STATE] = self.curr_high_level_h_state
-        info[c.HIGH_LEVEL_ACTION] = self.curr_high_level_act
-        return self.learning_algorithm.update(curr_obs,
-                                              curr_h_state,
-                                              action,
-                                              reward,
-                                              done,
-                                              info,
-                                              next_obs,
-                                              next_h_state)
+    def update(self, curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state,
+               update_intentions=True, update_scheduler=True, update_buffer=True, **kwargs):
+        if update_scheduler:
+            info[c.HIGH_LEVEL_OBSERVATION] = self.curr_high_level_obs
+            info[c.HIGH_LEVEL_HIDDEN_STATE] = self.curr_high_level_h_state
+            info[c.HIGH_LEVEL_ACTION] = self.curr_high_level_act
+        return self.learning_algorithm.update(
+            curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state,
+            update_intentions, update_scheduler, update_buffer, **kwargs)
 
 
 class SACXAgent(HierarchicalRLAgent):
@@ -57,12 +54,16 @@ class SACXAgent(HierarchicalRLAgent):
                                    c.MEAN: self.curr_high_level_mean,
                                    c.VARIANCE: self.curr_high_level_variance}
 
+            if self.learning_algorithm.algo_params[c.ENV_SETTING][c.ENV_TYPE] == c.PANDA_RL_ENVS:
+                print(f"Sched: timestep {self._curr_timestep} -- high level act: {self.curr_high_level_act}")
+
         action, hidden_state, act_info = super().compute_action(obs, hidden_state)
         act_info[c.LOG_PROB] = act_info[c.LOG_PROB][self.curr_high_level_act]
         act_info[c.VALUE] = act_info[c.VALUE][self.curr_high_level_act]
         act_info[c.ENTROPY] = act_info[c.ENTROPY][self.curr_high_level_act]
         act_info[c.MEAN] = act_info[c.MEAN][self.curr_high_level_act]
         act_info[c.VARIANCE] = act_info[c.VARIANCE][self.curr_high_level_act]
+        act_info[c.HIGH_LEVEL_ACTION] = self.curr_high_level_act
 
         self._curr_timestep += 1
         return action[self.curr_high_level_act], hidden_state, act_info

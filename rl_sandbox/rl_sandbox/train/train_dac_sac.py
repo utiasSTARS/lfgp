@@ -1,3 +1,6 @@
+import os
+import glob
+
 import torch
 
 import rl_sandbox.constants as c
@@ -11,7 +14,7 @@ from rl_sandbox.learning_utils import train
 from rl_sandbox.model_architectures.utils import make_model, make_optimizer
 from rl_sandbox.agents.rl_agents import ACAgent, ACAgentEUniformExplorer
 from rl_sandbox.transforms.general_transforms import Identity
-from rl_sandbox.utils import make_summary_writer, set_seed
+from rl_sandbox.utils import make_summary_writer, set_seed, set_rng_state, check_load_latest_checkpoint, check_load_as_jumpoff_point
 from rl_sandbox.envs.wrappers.frame_stack import FrameStackWrapper
 
 def train_dac_sac(experiment_config):
@@ -19,10 +22,17 @@ def train_dac_sac(experiment_config):
     save_path = experiment_config.get(c.SAVE_PATH, None)
     buffer_preprocessing = experiment_config.get(c.BUFFER_PREPROCESSING, Identity())
 
+    save_path, add_time_tag_to_save_path = check_load_latest_checkpoint(experiment_config, save_path)
+    save_path, add_time_tag_to_save_path = check_load_as_jumpoff_point(experiment_config, save_path, add_time_tag_to_save_path)
+    buffer_end_idx = None
+    if experiment_config.get(c.LOAD_BUFFER_START_INDEX, -1) >= 0:
+        buffer_end_idx = experiment_config[c.LOAD_BUFFER_START_INDEX]
+
     set_seed(seed)
     train_env = make_env(experiment_config[c.ENV_SETTING], seed)
     model = make_model(experiment_config[c.MODEL_SETTING])
-    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False))
+    buffer = make_buffer(experiment_config[c.BUFFER_SETTING], seed, experiment_config[c.BUFFER_SETTING].get(c.LOAD_BUFFER, False),
+                         end_idx=buffer_end_idx)
 
     policy_opt = make_optimizer(model.policy_parameters, experiment_config[c.OPTIMIZER_SETTING][c.POLICY])
     qs_opt = make_optimizer(model.qs_parameters, experiment_config[c.OPTIMIZER_SETTING][c.QS])
@@ -70,7 +80,9 @@ def train_dac_sac(experiment_config):
 
     load_model = experiment_config.get(c.LOAD_MODEL, False)
     if load_model:
-        learning_algorithm.load_state_dict(torch.load(load_model))
+        state_dict = torch.load(load_model, map_location=experiment_config[c.DEVICE])
+        dac.load_state_dict(state_dict)
+        set_rng_state(state_dict[c.TORCH_RNG_STATE], state_dict[c.NP_RNG_STATE])
 
     # TODO add this as a proper option
     # agent = ACAgentEUniformExplorer(model=model, learning_algorithm=dac,
@@ -80,14 +92,18 @@ def train_dac_sac(experiment_config):
                     learning_algorithm=dac,
                     preprocess=experiment_config[c.EVALUATION_PREPROCESSING])
 
-
+    # overwrites the save path with a time tag
     summary_writer, save_path = make_summary_writer(save_path=save_path,
                                                     algo=c.DAC,
-                                                    cfg=experiment_config)
+                                                    cfg=experiment_config,
+                                                    add_time_tag=add_time_tag_to_save_path)
     evaluation_env = None
     evaluation_agent = None
     if experiment_config.get(c.EVALUATION_FREQUENCY, 0):
-        evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
+        if experiment_config[c.ENV_SETTING][c.ENV_TYPE] == c.PANDA_RL_ENVS:
+            evaluation_env = train_env
+        else:
+            evaluation_env = make_env(experiment_config[c.ENV_SETTING], seed + 1)
         evaluation_agent = ACAgent(model=model,
                                    learning_algorithm=None,
                                    preprocess=experiment_config[c.EVALUATION_PREPROCESSING])

@@ -61,6 +61,14 @@ TASK_DIM = "task_dim"
 U_DIM = "u_dim"
 Z_DIM = "z_dim"
 
+# Real Robot additions
+PANDA_RL_ENVS = "panda_rl_envs"
+TRAIN_DURING_ENV_STEP = "train_during_env_step"
+CHECKPOINT_EVERY_EP = "checkpoint_every_ep"
+LOAD_LATEST_CHECKPOINT = "load_latest_checkpoint"
+CHECKPOINT_NAME = "checkpoint_name"
+SAVE_CHECKPOINT_NAME = "save_checkpoint_name"
+
 # Environment
 ABSORBING_STATE = "absorbing_state"
 ACTION_REPEAT = "action_repeat"
@@ -120,6 +128,8 @@ SEED = "seed"
 TRAIN = "train"
 TRAIN_PREPROCESSING = "train_preprocessing"
 UPDATE_NUM = "update_num"
+TORCH_RNG_STATE = "torch_rng_state"
+NP_RNG_STATE = "np_rng_state"
 
 # Graphics
 RGB = "rgb"
@@ -258,6 +268,7 @@ PRIORITIZED_EXPERIENCE_REPLAY = "prioritized_experience_replay"
 VANILLA = "vanilla"
 
 # RL general terms
+STEP = "step"
 AVERAGE_RETURNS = "average_returns"
 CURR_EPISODE = "curr_episode"
 CUM_EPISODE_LENGTHS = "cum_episode_lengths"
@@ -278,6 +289,7 @@ NUM_ITERS = "num_iters"
 NUM_STEPS = "num_steps"
 POLICY = "policy"
 RETURNS = "returns"
+SUCCESSES = "successes"
 VALUE = "value"
 BOOTSTRAP_ON_DONE = "bootstrap_on_done"
 
@@ -318,6 +330,10 @@ ALPHA_UPDATE_TIME = "alpha_update_time"
 CONTENT = "content"
 LOAD_BUFFER = "load_buffer"
 LOAD_MODEL = "load_model"
+LOAD_BUFFER_NAME = "load_buffer_name"
+LOAD_MODEL_NAME = "load_model_name"
+LOAD_BUFFER_START_INDEX = "load_buffer_start_index"
+LOAD_TRACKING_DICT = "load_tracking_dict"
 LOG_SETTING = "log_setting"
 MIN_MAX = "min_max"
 MODEL_UPDATE_TIME = "model_update_time"
@@ -817,7 +833,8 @@ VALID_ENV_TYPE = (DM_CONTROL,
                   GYM_THING,
                   MANIPULATOR_LEARNING,
                   SAWYER,
-                  HAND_DAPG)
+                  HAND_DAPG,
+                  PANDA_RL_ENVS)
 
 VALID_DISCRIMINATOR = (GAUSSIAN,)
 

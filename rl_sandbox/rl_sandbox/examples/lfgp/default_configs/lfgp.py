@@ -9,6 +9,7 @@ import rl_sandbox.auxiliary_rewards.rce_envs.sawyer as s_aux
 import rl_sandbox.auxiliary_rewards.rce_envs.door_human_v0 as door_aux
 import rl_sandbox.auxiliary_rewards.rce_envs.hammer_human_v0 as hammer_aux
 import rl_sandbox.auxiliary_rewards.rce_envs.relocate_human_v0 as relocate_aux
+import rl_sandbox.auxiliary_rewards.generic as generic_aux
 import rl_sandbox.constants as c
 import rl_sandbox.examples.lfgp.experiment_utils as exp_utils
 import rl_sandbox.examples.lfgp.transfer as transfer
@@ -69,7 +70,8 @@ def get_parser():
     return parser
 
 def get_settings(args):
-    common_default.main_task_alias_set(args)
+    if args.env_type == c.MANIPULATOR_LEARNING:
+        common_default.main_task_alias_set(args)
     obs_dim, action_dim = common_default.get_obs_action_dim(args)
     common_default.default_settings(args)
     device = torch.device(args.device)
@@ -91,9 +93,25 @@ def get_settings(args):
                                                                      aux_rewards=args.hand_dapg_aux_tasks.split(','))
         else:
             raise NotImplementedError(f"Aux reward not implemented for hand_dapg env {args.env_name}")
+    elif args.env_type == c.PANDA_RL_ENVS:
+        expert_filenames_list = args.expert_filenames.split(',')
+        aux_reward = []
+        for fn_i, fn_str in enumerate(expert_filenames_list):
+            if fn_i == 0:
+                aux_reward.append('main')
+            else:
+                fn_no_ext = fn_str.split('.gz')[0]
+                # if fn_no_ext == args.env_name:
+                #     aux_reward.append('main')
+                # else:
+                aux_reward.append(fn_no_ext.split('_')[-1])
     else:
         raise NotImplementedError("Not yet implemented for other env types!")
-    num_tasks = aux_reward.num_auxiliary_rewards
+
+    if args.env_type in [c.MANIPULATOR_LEARNING, c.SAWYER, c.HAND_DAPG]:
+        num_tasks = aux_reward.num_auxiliary_rewards
+    else:
+        num_tasks = len(aux_reward)
 
     # LfGP/SAC-X unchanging constants
     task_select_probs = [0.5 / (num_tasks - 1) for _ in range(num_tasks)]
@@ -130,7 +148,34 @@ def get_settings(args):
 
     # set scheduler
     if args.scheduler == "wrs_plus_handcraft":
-        if args.env_type == c.MANIPULATOR_LEARNING:
+        if args.env_type == c.PANDA_RL_ENVS:
+            if args.env_name in ['PandaDrawer', 'PandaDrawerLine']:
+                ma = 0; re = 1; gr = 2
+                handcraft_traj_epsilon = 1.0
+                if args.scheduler_period == 20:
+                    handcraft_traj_options = [
+                        [re, gr, ma],
+                        [re, gr, ma],
+                        [re, gr, ma],
+                        [ma, ma, ma],
+                    ]
+            elif args.env_name in [
+                'PandaDoorAngle', 'PandaDoorAngleLongEp', 'PandaDoor', 
+                'PandaDoorLongEp', 'PandaDrawerLongEp', 'PandaDrawerLineLongEp',
+                'PandaDoorNoJamAngle', 'PandaDoorNoJamAngleLongEp'
+            ]:
+                ma = 0; re = 1; gr = 2
+                handcraft_traj_epsilon = 0.5
+                if args.scheduler_period == 20 or args.scheduler_period == 30:
+                    handcraft_traj_options = [[ma, ma, ma]]
+                    handcraft_traj_options[0].extend([re, gr, ma] * 15)
+                    # handcraft_traj_options = [
+                    #     [re, gr, ma] * 16
+                    # ]
+                    handcraft_traj_options[0].extend([re, gr])
+            else:
+                raise NotImplementedError("handcraft scheduler not yet set up for other panda rl envs!")
+        elif args.env_type == c.MANIPULATOR_LEARNING:
             handcraft_traj_epsilon = .5
             if args.main_task == 'insert_0':
                 handcraft_traj_options = [

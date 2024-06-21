@@ -198,7 +198,7 @@ class UpdateDACIntentions:
 
     def update(self, curr_obs, curr_h_state, act, rew, done, info, next_obs, next_h_state, update_buffer=True):
         if update_buffer:
-            if curr_obs[:, -1] == 1:  # for absorbing states
+            if curr_obs[:, -1] == 1 and self._use_absorbing_state:
                 act[:] = 0
             self.buffer.push(obs=curr_obs,
                             h_state=curr_h_state,
@@ -210,7 +210,6 @@ class UpdateDACIntentions:
                             next_h_state=next_h_state)
 
         # The reward will be computed in the underlying policy learning algorithm
-        # NOTE: Disable _store_to_buffer in learning algorithm
         discriminator_update_info = {}
         if self.learning_algorithm.step >= self.learning_algorithm._buffer_warmup and \
                 self.algo_params.get(c.REWARD_MODEL, "discriminator") == "discriminator":

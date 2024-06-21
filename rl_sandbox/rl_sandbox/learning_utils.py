@@ -17,10 +17,58 @@ import rl_sandbox.constants as c
 
 from rl_sandbox.envs.utils import make_env
 from rl_sandbox.envs.fake_env import FakeEnv
-from rl_sandbox.utils import DummySummaryWriter, EpochSummary
+from rl_sandbox.utils import DummySummaryWriter, EpochSummary, get_rng_state
 from rl_sandbox.algorithms.sac_x.schedulers import FixedScheduler, RecycleScheduler
 from rl_sandbox.agents.hrl_agents import SACXAgent
-from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper
+from rl_sandbox.envs.wrappers.absorbing_state import AbsorbingStateWrapper, check_absorbing
+
+
+def timer(): return timeit.default_timer()
+
+
+def checkpoint(save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns, last_buf_save_path,
+               evaluation_successes_all_tasks, evaluation_successes, experiment_settings,
+               learning_utils_tracking_dict,
+               checkpoint_name="checkpoint", debug_print_time=False, save_buffer=True):
+    save_start = timer()
+
+    # model
+    curr_save_path = f"{save_path}/{checkpoint_name}.pt"
+    # print(f"Saving model to {curr_save_path}")
+    state_dict = agent.learning_algorithm.state_dict()
+    rng_state_dict = get_rng_state()
+    for k, v in rng_state_dict.items():
+        state_dict[k] = v
+    torch.save(state_dict, curr_save_path)
+    pickle.dump({c.RETURNS: returns if done else returns[:-1],
+                 c.SUCCESSES: successes if done else successes[:-1],
+                 c.CUM_EPISODE_LENGTHS: cum_episode_lengths if done else cum_episode_lengths[:-1],
+                 c.EVALUATION_RETURNS: evaluation_returns,
+                 c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
+                 c.EVALUATION_SUCCESSES: evaluation_successes,},
+                open(f'{save_path}/{c.TRAIN_FILE}', 'wb'))
+
+    # buffer
+    if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER) and save_buffer:
+        buf_save_path = f"{save_path}/{checkpoint_name}_buffer.pkl"
+        has_absorbing_wrapper = check_absorbing(experiment_settings)
+        if last_buf_save_path == buf_save_path and os.path.isfile(last_buf_save_path):
+            os.rename(last_buf_save_path, last_buf_save_path + '.bak')
+            last_buf_save_path += '.bak'
+        agent.learning_algorithm.buffer.save(buf_save_path, end_with_done=not has_absorbing_wrapper)
+        if last_buf_save_path is not None and \
+                os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
+            os.remove(last_buf_save_path)
+        last_buf_save_path = buf_save_path
+
+    # tracking variables
+    pickle.dump(learning_utils_tracking_dict, open(f'{save_path}/{checkpoint_name}_tracking_dict.pkl', 'wb'))
+
+    if debug_print_time:
+        print(f"Checkpoint -- save time: {timer() - save_start:.2f}, buf len: {len(agent.learning_algorithm.buffer)}")
+
+    return last_buf_save_path
+
 
 def buffer_warmup(agent,
                   env,
@@ -106,12 +154,13 @@ def train(agent,
         c.MAX_TOTAL_STEPS, c.DEFAULT_TRAIN_PARAMS[c.MAX_TOTAL_STEPS])
 
     # Progress Tracking
-    curr_episode = experiment_settings.get(
-        c.CURR_EPISODE, c.DEFAULT_TRAIN_PARAMS[c.CURR_EPISODE])
-    num_updates = experiment_settings.get(
-        c.NUM_UPDATES, c.DEFAULT_TRAIN_PARAMS[c.NUM_UPDATES])
+    curr_episode = np.array(experiment_settings.get(
+        c.CURR_EPISODE, c.DEFAULT_TRAIN_PARAMS[c.CURR_EPISODE]))
+    num_updates = np.array(experiment_settings.get(
+        c.NUM_UPDATES, c.DEFAULT_TRAIN_PARAMS[c.NUM_UPDATES]))
     returns = experiment_settings.get(
         c.RETURNS, c.DEFAULT_TRAIN_PARAMS[c.RETURNS])
+    successes = [False]
     cum_episode_lengths = experiment_settings.get(
         c.CUM_EPISODE_LENGTHS, c.DEFAULT_TRAIN_PARAMS[c.CUM_EPISODE_LENGTHS])
 
@@ -140,6 +189,18 @@ def train(agent,
         c.EVALUATION_RENDER, c.DEFAULT_TRAIN_PARAMS[c.EVALUATION_RENDER])
     evaluation_stochastic = experiment_settings.get(c.EVALUATION_STOCHASTIC, False)
 
+    # tracking dict for saving, all referencing original objects
+    tracking_dict = {
+        c.CURR_EPISODE: curr_episode,
+        c.NUM_UPDATES: num_updates,
+        c.RETURNS: returns,
+        c.SUCCESSES: successes,
+        c.CUM_EPISODE_LENGTHS: cum_episode_lengths,
+        c.EVALUATION_RETURNS: evaluation_returns,
+        c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
+        c.EVALUATION_SUCCESSES: evaluation_successes
+    }
+
     assert save_path is None or os.path.isdir(save_path)
 
     num_tasks = experiment_settings.get(c.NUM_TASKS, 1)
@@ -149,17 +210,24 @@ def train(agent,
 
     if hasattr(evaluation_env, 'get_task_successes') and c.AUXILIARY_REWARDS in experiment_settings and \
             hasattr(experiment_settings[c.AUXILIARY_REWARDS], '_aux_rewards_str'):
+        # for lfgp/multitask case
         auxiliary_success = partial(
             evaluation_env.get_task_successes, tasks=experiment_settings[c.AUXILIARY_REWARDS]._aux_rewards_str)
+        train_auxiliary_success = partial(
+            train_env.get_task_successes, tasks=experiment_settings[c.AUXILIARY_REWARDS]._aux_rewards_str)
     elif hasattr(evaluation_env, 'get_task_successes') and hasattr(evaluation_env, 'VALID_AUX_TASKS') and \
             (auxiliary_reward.__qualname__ in evaluation_env.VALID_AUX_TASKS or
              auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>'):
+        # for single task
         if auxiliary_reward.__qualname__ == 'train.<locals>.<lambda>':
             auxiliary_success = partial(evaluation_env.get_task_successes, tasks=['main'])
+            train_auxiliary_success = partial(train_env.get_task_successes, tasks=['main'])
         else:
             auxiliary_success = partial(evaluation_env.get_task_successes, tasks=[auxiliary_reward.__qualname__])
+            train_auxiliary_success = partial(train_env.get_task_successes, tasks=[auxiliary_reward.__qualname__])
     else:
         auxiliary_success = None
+        train_auxiliary_success = None
 
     if experiment_settings.get(c.REWARD_MODEL, None) == 'sparse':
         if hasattr(train_env, 'get_task_successes') and c.AUXILIARY_REWARDS in experiment_settings and \
@@ -200,6 +268,7 @@ def train(agent,
 
     try:
         returns.append(0)
+        successes.append(False)
         cum_episode_lengths.append(cum_episode_lengths[-1])
         curr_h_state = agent.reset()
         curr_obs = train_env.reset()
@@ -210,6 +279,29 @@ def train(agent,
 
         epoch_summary = EpochSummary()
         epoch_summary.new_epoch()
+
+        loaded_tracking_dict = None
+
+        # Load tracking dict if we have a jumpoff point
+        if experiment_settings.get(c.LOAD_TRACKING_DICT, "") != "":
+            loaded_tracking_dict = pickle.load(open(experiment_settings[c.LOAD_TRACKING_DICT], 'rb'))
+
+        # Loading checkpoint variables by setting references from dict...bit of a hack
+        if experiment_settings.get(c.LOAD_LATEST_CHECKPOINT, False):
+            loaded_tracking_dict = pickle.load(open(
+                os.path.join(save_path, f'{experiment_settings[c.CHECKPOINT_NAME]}_tracking_dict.pkl'), 'rb'))
+
+        if loaded_tracking_dict is not None:
+            for k, v in loaded_tracking_dict.items():
+                # also set the local variable, in addition to the dictionary object, since same reference
+                if type(v) == np.ndarray and v.shape == ():
+                    tracking_dict[k].fill(v)
+                elif type(v) == list:
+                    tracking_dict[k].clear()
+                    tracking_dict[k].extend(v)
+                else:
+                    raise NotImplementedError(f"tracking variable {k} is a {type(v)}, not a loadable type yet")
+
         for timestep_i in range(cum_episode_lengths[-1], max_total_steps):
             if hasattr(train_env, c.RENDER) and train_render:
                 train_env.render()
@@ -231,38 +323,60 @@ def train(agent,
                                      a_min=min_action,
                                      a_max=max_action)
 
-
             env_tic = timeit.default_timer()
-            next_obs, reward, done, env_info = train_env.step(env_action)
+            if experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False):
+                if type(agent) == SACXAgent:
+                    train_func = partial(agent.update, None, None, None, None, None, None, None, None,
+                                         update_intentions=True, update_scheduler=False, update_buffer=False)
+                else:
+                    train_func = partial(agent.update, None, None, None, None, None, None, None, None, update_buffer=False)
+                next_obs, reward, done, env_info = train_env.step(env_action, train_func=train_func)
+                updated, update_info = train_env.get_train_update()
+
+            else:
+                next_obs, reward, done, env_info = train_env.step(env_action)
             env_sample_time = timeit.default_timer() - env_tic
 
             next_obs = buffer_preprocess(next_obs)
 
-            if experiment_settings.get(c.REWARD_MODEL, None) == 'sparse':
+            if experiment_settings.get(c.REWARD_MODEL, None) == c.SPARSE:
                 reward = np.atleast_1d(
                     sparse_rew(observation=curr_obs, action=action, env_info=env_info['infos'][-1])).astype(np.float32)
 
             else:
-                reward = np.atleast_1d(auxiliary_reward(observation=curr_obs,
-                                                        action=env_action,
-                                                        reward=reward,
-                                                        done=done,
-                                                        next_observation=next_obs,
-                                                        info=env_info))
+                reward = np.atleast_1d(
+                    auxiliary_reward(observation=curr_obs, action=env_action, reward=reward, done=done,
+                                    next_observation=next_obs, info=env_info[c.INFOS][-1]))
+
+            if train_auxiliary_success is not None:
+                success = np.atleast_1d(
+                    train_auxiliary_success(observation=curr_obs, action=env_action, env_info=env_info[c.INFOS][-1]))
 
             info = dict()
             info[c.DISCOUNTING] = env_info.get(c.DISCOUNTING, np.array([1]))
             info.update(act_info)
-            update_tic = timeit.default_timer()
-            updated, update_info = agent.update(curr_obs,
-                                                curr_h_state,
-                                                action,
-                                                reward,
-                                                done,
-                                                info,
-                                                next_obs,
-                                                next_h_state)
-            update_info[c.AGENT_UPDATE_TIME] = [timeit.default_timer() - update_tic]
+
+            # add data to buffer, first handle absorbing states
+            if curr_obs[:, -1] == 1 and agent.learning_algorithm._use_absorbing_state:
+                action[:] = 0
+
+            if experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False) and type(agent) == SACXAgent:
+                _, update_info = agent.update(
+                    curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state,
+                    update_intentions=False, update_scheduler=True, update_buffer=False, update_info=update_info)
+
+            # real reward added to buffer, overwritten by IRL methods during sampling
+            agent.learning_algorithm.buffer.push(
+                obs=curr_obs, h_state=curr_h_state, act=action, rew=reward, done=done, info=info,
+                next_obs=next_obs, next_h_state=next_h_state)
+
+            # train
+            if not experiment_settings.get(c.TRAIN_DURING_ENV_STEP, False):
+                update_tic = timeit.default_timer()
+                updated, update_info = agent.update(
+                    curr_obs, curr_h_state, action, reward, done, info, next_obs, next_h_state, update_buffer=False)
+                update_info[c.AGENT_UPDATE_TIME] = [timeit.default_timer() - update_tic]
+
             update_info[c.ENV_SAMPLE_TIME] = [env_sample_time]
 
             curr_obs = next_obs
@@ -270,6 +384,8 @@ def train(agent,
 
             returns[-1] += reward
             cum_episode_lengths[-1] += 1
+            if auxiliary_success is not None:
+                successes[-1] = success
 
             if updated:
                 num_updates += 1
@@ -300,7 +416,11 @@ def train(agent,
                     cum_episode_lengths[-2]
                 for task_i, task_i_ret in enumerate(returns[-1]):
                     summary_writer.add_scalar(
-                        f"{c.INTERACTION_INFO}/task_{task_i}/{c.RETURNS}", task_i_ret, timestep_i)
+                        f"{c.INTERACTION_INFO}/task_{task_i}/{c.RETURNS}", task_i_ret, timestep_i + 1)
+                if auxiliary_success is not None:
+                    for task_i, task_i_suc in enumerate(successes[-1]):
+                        summary_writer.add_scalar(
+                            f"{c.INTERACTION_INFO}/task_{task_i}/{c.SUCCESSES}", task_i_suc, timestep_i + 1)
                 summary_writer.add_scalar(
                     f"{c.INTERACTION_INFO}/{c.EPISODE_LENGTHS}", episode_length, curr_episode)
 
@@ -314,8 +434,15 @@ def train(agent,
                 epoch_summary.log(f"{c.INTERACTION_INFO}/{c.EPISODE_LENGTHS}", episode_length)
 
                 returns.append(0)
+                successes.append(False)
                 cum_episode_lengths.append(cum_episode_lengths[-1])
                 curr_episode += 1
+
+                if experiment_settings[c.CHECKPOINT_EVERY_EP]:
+                    last_buf_save_path = checkpoint(
+                        save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns,
+                        last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
+                        experiment_settings, tracking_dict, checkpoint_name=experiment_settings[c.SAVE_CHECKPOINT_NAME])
 
             curr_timestep = timestep_i + 1
             if evaluation_frequency > 0 and curr_timestep % evaluation_frequency == 0:
@@ -385,47 +512,17 @@ def train(agent,
                 epoch_summary.new_epoch()
 
             if save_path is not None and curr_timestep % save_interval == 0:
-                curr_save_path = f"{save_path}/{curr_timestep}.pt"
-                print(f"Saving model to {curr_save_path}")
-                torch.save(agent.learning_algorithm.state_dict(), curr_save_path)
-                pickle.dump({c.RETURNS: returns if done else returns[:-1],
-                             c.CUM_EPISODE_LENGTHS: cum_episode_lengths if done else cum_episode_lengths[:-1],
-                             c.EVALUATION_RETURNS: evaluation_returns,
-                             c.EVALUATION_SUCCESSES_ALL_TASKS: evaluation_successes_all_tasks,
-                             c.EVALUATION_SUCCESSES: evaluation_successes,},
-                            open(f'{save_path}/{c.TRAIN_FILE}', 'wb'))
-                if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
-                    buf_save_path = f"{save_path}/{curr_timestep}_buffer.pkl"
-                    has_absorbing_wrapper = False
-                    for wrap_dict in experiment_settings[c.ENV_SETTING][c.ENV_WRAPPERS]:
-                        if wrap_dict[c.WRAPPER] == AbsorbingStateWrapper:
-                            has_absorbing_wrapper = True
-                            break
-                    agent.learning_algorithm.buffer.save(buf_save_path, end_with_done=not has_absorbing_wrapper)
-                    if last_buf_save_path is not None and \
-                            os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
-                        os.remove(last_buf_save_path)
-                    last_buf_save_path = buf_save_path
+                last_buf_save_path = checkpoint(save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns,
+                           last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
+                           experiment_settings, tracking_dict, checkpoint_name=curr_timestep,
+                           save_buffer=not experiment_settings[c.CHECKPOINT_EVERY_EP])
+                print(f"Saved model to {save_path}/{curr_timestep}.pt")
     finally:
-        if save_path is not None:
-            torch.save(agent.learning_algorithm.state_dict(),
-                       f"{save_path}/{c.TERMINATION_STATE_DICT_FILE}")
-            if not done:
-                returns = returns[:-1]
-                cum_episode_lengths = cum_episode_lengths[:-1]
-            pickle.dump(
-                {c.RETURNS: returns, c.CUM_EPISODE_LENGTHS: cum_episode_lengths,
-                    c.EVALUATION_RETURNS: evaluation_returns},
-                open(f'{save_path}/{c.TERMINATION_TRAIN_FILE}', 'wb')
-            )
-        if hasattr(agent, c.LEARNING_ALGORITHM) and hasattr(agent.learning_algorithm, c.BUFFER):
-            if save_path is not None:
-                buf_save_path = f"{save_path}/{c.TERMINATION_BUFFER_FILE}"
-                agent.learning_algorithm.buffer.save(buf_save_path)
-                if last_buf_save_path is not None and \
-                        os.path.isfile(last_buf_save_path) and os.path.isfile(buf_save_path):
-                    os.remove(last_buf_save_path)
-            agent.learning_algorithm.buffer.close()
+        if save_path is not None and not experiment_settings[c.CHECKPOINT_EVERY_EP]:
+            last_buf_save_path = checkpoint(save_path, agent, done, returns, successes, cum_episode_lengths, evaluation_returns,
+                           last_buf_save_path, evaluation_successes_all_tasks, evaluation_successes,
+                           experiment_settings, tracking_dict, checkpoint_name='termination')
+            print(f"Saved model to {save_path}/termination.pt")
     toc = timeit.default_timer()
     print(f"Training took: {toc - tic}s")
 
@@ -542,12 +639,12 @@ def evaluate_policy(agent,
                                                                reward=reward,
                                                                done=done,
                                                                next_observation=next_obs,
-                                                               info=env_info))
+                                                               info=env_info[c.INFOS][-1]))
 
             if auxiliary_success is not None:
                 aux_successes[-1] = np.array(auxiliary_success(observation=curr_obs,
                                                                action=action,
-                                                               env_info=env_info['infos'][-1])).astype(int).tolist()
+                                                               env_info=env_info[c.INFOS][-1])).astype(int).tolist()
                 if success_ends_ep:
                     if hasattr(agent, "high_level_model") and (type(agent.high_level_model) == RecycleScheduler or
                             type(agent.high_level_model) == FixedScheduler):
@@ -560,7 +657,7 @@ def evaluate_policy(agent,
                         # also, to keep returns reasonably consistent, add the current return for "remaining" timesteps
                         eval_returns[-1] += np.atleast_1d(
                             auxiliary_reward(observation=curr_obs, action=action, reward=reward, done=done,
-                            next_observation=next_obs, info=env_info)) * (env.unwrapped._max_episode_steps - (ts + 1))
+                            next_observation=next_obs, info=env_info[c.INFOS][-1])) * (env.unwrapped._max_episode_steps - (ts + 1))
 
             else:
                 aux_successes[-1] = np.zeros(eval_returns[-1].shape)

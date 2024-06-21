@@ -53,7 +53,7 @@ class SACXAgent(HierarchicalRLAgent):
                                    c.ENTROPY: self.curr_high_level_entropy,
                                    c.MEAN: self.curr_high_level_mean,
                                    c.VARIANCE: self.curr_high_level_variance}
-        
+
             if self.learning_algorithm.algo_params[c.ENV_SETTING][c.ENV_TYPE] == c.PANDA_RL_ENVS:
                 print(f"Sched: timestep {self._curr_timestep} -- high level act: {self.curr_high_level_act}")
 
@@ -63,6 +63,7 @@ class SACXAgent(HierarchicalRLAgent):
         act_info[c.ENTROPY] = act_info[c.ENTROPY][self.curr_high_level_act]
         act_info[c.MEAN] = act_info[c.MEAN][self.curr_high_level_act]
         act_info[c.VARIANCE] = act_info[c.VARIANCE][self.curr_high_level_act]
+        act_info[c.HIGH_LEVEL_ACTION] = self.curr_high_level_act
 
         self._curr_timestep += 1
         return action[self.curr_high_level_act], hidden_state, act_info

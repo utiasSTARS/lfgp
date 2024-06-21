@@ -653,10 +653,10 @@ class TrajectoryPinBuffer(TorchPinBuffer):
     ):
         if self._policy_switch_discontinuity:
             if self._count == 0:
-                self._curr_active_policy = info[c.HIGH_LEVEL_ACTION]
+                self._curr_active_policy = info.get(c.HIGH_LEVEL_ACTION, 0)
                 new_step_policy = None
             else:
-                new_step_policy = info[c.HIGH_LEVEL_ACTION]
+                new_step_policy = info.get(c.HIGH_LEVEL_ACTION, 0)
 
         self._episode_lengths[-1] += 1
 

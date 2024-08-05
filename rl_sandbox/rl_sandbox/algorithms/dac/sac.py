@@ -206,12 +206,25 @@ class SACDAC(SAC):
                 max_exp_q_filtered = self._prev_q_maxs.median(axis=0)[0]
                 q_max[self._expert_end:, :] = max_exp_q_filtered
 
-            q1_max_mag_loss = penalty * torch.maximum(q1_val - q_max, torch.tensor(0)) ** 2
-            q2_max_mag_loss = penalty * torch.maximum(q2_val - q_max, torch.tensor(0)) ** 2
-            q1_min_mag_loss = penalty * torch.maximum(-(q1_val - q_min), torch.tensor(0)) ** 2
-            q2_min_mag_loss = penalty * torch.maximum(-(q2_val - q_min), torch.tensor(0)) ** 2
-            q1_loss = q1_loss + q1_max_mag_loss.sum() + q1_min_mag_loss.sum()
-            q2_loss = q2_loss + q2_max_mag_loss.sum() + q2_min_mag_loss.sum()
+            q_regularizer = self.algo_params.get("q_regularizer", "vp")
+            if q_regularizer == "vp":
+                q1_max_mag_loss = penalty * torch.maximum(q1_val - q_max, torch.tensor(0)) ** 2
+                q2_max_mag_loss = penalty * torch.maximum(q2_val - q_max, torch.tensor(0)) ** 2
+                q1_min_mag_loss = penalty * torch.maximum(-(q1_val - q_min), torch.tensor(0)) ** 2
+                q2_min_mag_loss = penalty * torch.maximum(-(q2_val - q_min), torch.tensor(0)) ** 2
+                q1_loss = q1_loss + q1_max_mag_loss.sum() + q1_min_mag_loss.sum()
+                q2_loss = q2_loss + q2_max_mag_loss.sum() + q2_min_mag_loss.sum()
+            elif q_regularizer == "c2f":
+                q1_reg = penalty * q1_val ** 2
+                q2_reg = penalty * q2_val ** 2
+                q1_loss = q1_loss + q1_reg.sum()
+                q2_loss = q2_loss + q2_reg.sum()
+            elif q_regularizer == "cql":
+                q1_pi, q2_pi = self._q_pi(obss, h_states)
+                q1_reg = penalty * (-q1_val.sum() + q1_pi.sum())
+                q2_reg = penalty * (-q2_val.sum() + q2_pi.sum())
+                q1_loss = q1_loss + q1_reg
+                q2_loss = q2_loss + q2_reg
 
         if self.algo_params.get(c.NOISE_ZERO_TARGET_MODE, 'none') != 'none':
             obs_min = self.buffer.observations.min(axis=0)[0]

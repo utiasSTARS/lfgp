@@ -30,6 +30,7 @@ class SACDAC(SAC):
         self._expert_buffer_rate = self.algo_params.get(c.EXPERT_BUFFER_MODEL_SAMPLE_RATE, 0.)
         self._sample_horizon = algo_params.get(c.N_STEP, 1) + 1
         self._reward_model = self.algo_params.get(c.REWARD_MODEL, "discriminator")
+        self._threshold_disc = self.algo_params.get("threshold_discriminator", False)
         self._buffer_sample_batch_size = self._batch_size
         self._expert_end = 0
         self._expert_buffer_sampling = False
@@ -139,7 +140,12 @@ class SACDAC(SAC):
                 # keeping here even though it's set by param now, just in case there are floating point problems
                 weights[:self._expert_end] = 1 - discount[:self._expert_end]
             else:
-                target = rews + discount * (1 - dones) * v_next
+                # EMBER
+                if self._threshold_disc:
+                    threshold_rews = (torch.nn.functional.sigmoid(rews) > 0.5).float()
+                    target = threshold_rews + discount * (1 - dones) * threshold_rews * v_next
+                else:
+                    target = rews + discount * (1 - dones) * v_next
 
                 if self.algo_params.get(c.Q_EXPERT_TARGET_MODE, 'bootstrap') == 'max' and \
                         self.algo_params.get(c.SQIL_RCE_BOOTSTRAP_EXPERT_MODE, "no_boot") == "boot":

@@ -174,6 +174,7 @@ class SACDAC(SAC):
         if self.algo_params.get(c.Q_OVER_MAX_PENALTY, 0.0) > 0:
             penalty = self.algo_params[c.Q_OVER_MAX_PENALTY]
             num_med_filt = self.algo_params.get(c.QOMP_NUM_MED_FILT, 50)
+            q_regularizer = self.algo_params.get("q_regularizer", "vp")
 
             if self._reward_model == c.SQIL or self._reward_model == c.SPARSE:
                 q_max = self._reward_scaling * torch.ones_like(q1_val) / (1 - discount)
@@ -200,10 +201,11 @@ class SACDAC(SAC):
                 q_max = max_r_filtered * torch.ones_like(q1_val) / (1 - discount)
 
             else:
-                raise NotImplementedError(f"Q over max penalty not implemented for reward model {self._reward_model}")
+                if q_regularizer != "cql":
+                    raise NotImplementedError(f"Q over max penalty not implemented for reward model {self._reward_model}")
 
             # also set q max for policy to be even more restrictive, based on whatever the current q max for expert is
-            if self._expert_end > 0:
+            if self._reward_model != "rce" and self._expert_end > 0:
                 max_q = max_expert_q if self.algo_params.get(c.QOMP_POLICY_MAX_TYPE, 'max_exp') == 'max_exp' else avg_expert_q
                 if not hasattr(self, "_prev_q_maxs"):
                     self._prev_q_maxs = torch.ones(num_med_filt, device=self.device) * max_q
@@ -212,7 +214,6 @@ class SACDAC(SAC):
                 max_exp_q_filtered = self._prev_q_maxs.median(axis=0)[0]
                 q_max[self._expert_end:, :] = max_exp_q_filtered
 
-            q_regularizer = self.algo_params.get("q_regularizer", "vp")
             if q_regularizer == "vp":
                 q1_max_mag_loss = penalty * torch.maximum(q1_val - q_max, torch.tensor(0)) ** 2
                 q2_max_mag_loss = penalty * torch.maximum(q2_val - q_max, torch.tensor(0)) ** 2

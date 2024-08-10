@@ -85,7 +85,7 @@ class SACDAC(SAC):
             return
         
         class MlpEncoder(nn.Module):
-            def __init__(self, obs_dim, latent_dim):
+            def __init__(self, obs_dim, latent_dim, device):
                 super(MlpEncoder, self).__init__()
                 self.mlp = nn.Sequential(
                     nn.Linear(obs_dim, 64), nn.ReLU(),
@@ -101,13 +101,15 @@ class SACDAC(SAC):
                         init.orthogonal_(p.weight, math.sqrt(2))
                         p.bias.data.zero_()
 
+                self.to(device)
+
             def forward(self, ob):
                 x = self.mlp(ob)
 
                 return x
 
-        self.rnd = MlpEncoder(self.model._obs_dim, 64)
-        self.target_rnd = MlpEncoder(self.model._obs_dim, 64)
+        self.rnd = MlpEncoder(self.model._obs_dim, 64, self.model.device)
+        self.target_rnd = MlpEncoder(self.model._obs_dim, 64, self.model.device)
         for param in self.target_rnd.parameters():
             param.requires_grad = False
 

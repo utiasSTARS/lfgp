@@ -99,6 +99,7 @@ def get_settings(args):
     experiment_setting[c.Q_OVER_MAX_PENALTY] = args.q_over_max_penalty
     experiment_setting["threshold_discriminator"] = args.threshold_discriminator
     experiment_setting[c.Q_REGULARIZER] = args.q_regularizer
+    experiment_setting["rnd"] = args.rnd
     experiment_setting[c.QOMP_NUM_MED_FILT] = args.qomp_num_med_filt
     experiment_setting[c.QOMP_POLICY_MAX_TYPE] = args.qomp_policy_max_type
     experiment_setting[c.Q_EXPERT_TARGET_MODE] = args.q_expert_target_mode

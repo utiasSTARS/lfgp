@@ -72,6 +72,64 @@ class SACDAC(SAC):
             self._batch_size = self._batch_size * 2  # 1 for expert, 1 for non-expert
             self._num_samples_per_accum = self._batch_size // self._accum_num_grad
 
+        self._initialize_intrinsic_reward()
+
+    def _initialize_intrinsic_reward(self):
+        from torch.nn import init
+        import math
+ 
+        if getattr(self.algo_params, "rnd", False):
+            def intrinsic_reward(obs, act):
+                return 0.0
+            self.intrinsic_reward = intrinsic_reward
+            return
+        
+        class MlpEncoder(nn.Module):
+            def __init__(self, obs_dim, latent_dim):
+                super(MlpEncoder, self).__init__()
+                self.mlp = nn.Sequential(
+                    nn.Linear(obs_dim, 64), nn.ReLU(),
+                    nn.Linear(64, 64), nn.ReLU(),
+                    nn.Linear(64, latent_dim), nn.LayerNorm(latent_dim))
+
+                for p in self.modules():
+                    if isinstance(p, nn.Conv2d):
+                        init.orthogonal_(p.weight, math.sqrt(2))
+                        p.bias.data.zero_()
+
+                    if isinstance(p, nn.Linear):
+                        init.orthogonal_(p.weight, math.sqrt(2))
+                        p.bias.data.zero_()
+
+            def forward(self, ob):
+                x = self.mlp(ob)
+
+                return x
+
+        self.rnd = MlpEncoder(self.model._obs_dim, 64)
+        self.target_rnd = MlpEncoder(self.model._obs_dim, 64)
+        for param in self.target_rnd.parameters():
+            param.requires_grad = False
+
+        self.rnd_opt = torch.optim.Adam(self.rnd.parameters(), 1e-4)
+
+        def intrinsic_reward(obs, act):
+            target_next_feature = self.target_rnd(obs).detach()
+            predict_next_feature = self.rnd(obs)
+            return ((target_next_feature - predict_next_feature) ** 2).sum(-1) / 2
+
+        self.intrinsic_reward = intrinsic_reward
+
+    def update_intrinsic_reward(self):
+        obss, _, acts, _, _, _, _ = self.buffer.sample(256)
+        loss = torch.mean(self.intrinsic_reward(obss, acts))
+
+        self.rnd_opt.zero_grad()
+        loss.backward()
+        self.rnd_opt.step()
+        return loss.item()
+
+
     def _compute_qs_loss(self, obss, h_states, acts, rews, dones, next_obss, discounting, lengths, update_info,
                          n_obss=None, n_h_states=None, n_discounts=None, discount_includes_gamma=False):
         rews, dones, discounting = rews.to(self.device), dones.to(self.device), discounting.to(self.device)
@@ -323,6 +381,11 @@ class SACDAC(SAC):
         self.step += 1
 
         update_info = {}
+
+        # Perform RND
+        if hasattr(self, "intrinsic_reward") and self.step >= self._buffer_warmup:
+            rnd_loss = self.update_intrinsic_reward()
+            update_info["rnd_loss"] = rnd_loss
 
         # Perform SAC update
         if self.step >= self._buffer_warmup and self.step % self._steps_between_update == 0:
@@ -620,6 +683,12 @@ class SACDAC(SAC):
 
                         rews[start:end] = 1.0
                         rews[end:] = self.algo_params.get(c.SQIL_POLICY_REWARD_LABEL, 0.0)
+
+                        if hasattr(self, "intrinsic_reward"):
+                            idxes = lengths.unsqueeze(-1).repeat(1, *obss.shape[2:]).unsqueeze(1)
+                            last_obss = torch.gather(obss, axis=1, index=idxes - 1)[:, 0, :]
+                            intrinsic_rew = self.intrinsic_reward(last_obss, acts).detach()
+                            rews += 0.5 * intrinsic_rew[:, None]
 
                     elif self._reward_model == c.SPARSE:
                         # only going to label non-successful rewards as same as what we would for sqil

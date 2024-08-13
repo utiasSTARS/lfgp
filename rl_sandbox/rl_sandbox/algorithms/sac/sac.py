@@ -107,6 +107,12 @@ class SAC:
             target_param.data.mul_(1. - self._tau)
             target_param.data.add_(param.data * self._tau)
 
+    def _q_pi(self, obss, h_states):
+        targ_h_states = h_states
+        acts, _ = self.model.act_lprob(obss, h_states)
+        _, q1_vals, q2_vals, _ = self.model.q_vals(obss, targ_h_states, acts)
+        return q1_vals, q2_vals
+
     def _calc_v_next(self, h_states, next_obss, next_h_states, n_obss, n_h_states, n_discounts):
         with torch.no_grad():
             # this is an unnecessary forward pass, so removing

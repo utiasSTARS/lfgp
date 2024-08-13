@@ -325,13 +325,34 @@ class UpdateSACIntentions(SACDAC):
                 max_exp_q_filtered = self._prev_q_maxs.median(axis=0)[0]
                 q_max[self._total_expert_amount:, :] = max_exp_q_filtered
 
-            q1_max_mag_loss = penalty * torch.maximum(q1_val - q_max, torch.tensor(0)) ** 2
-            q2_max_mag_loss = penalty * torch.maximum(q2_val - q_max, torch.tensor(0)) ** 2
-            q1_min_mag_loss = penalty * torch.maximum(-(q1_val - q_min), torch.tensor(0)) ** 2
-            q2_min_mag_loss = penalty * torch.maximum(-(q2_val - q_min), torch.tensor(0)) ** 2
+            # NOTE: Rebuttal R1.2
+            q_regularizer = self.algo_params.get("q_regularizer", "vp")
+            if q_regularizer == "vp":
+                q1_max_mag_loss = penalty * torch.maximum(q1_val - q_max, torch.tensor(0)) ** 2
+                q2_max_mag_loss = penalty * torch.maximum(q2_val - q_max, torch.tensor(0)) ** 2
+                q1_min_mag_loss = penalty * torch.maximum(-(q1_val - q_min), torch.tensor(0)) ** 2
+                q2_min_mag_loss = penalty * torch.maximum(-(q2_val - q_min), torch.tensor(0)) ** 2
+                q1_loss = q1_loss + q1_max_mag_loss.sum() + q1_min_mag_loss.sum()
+                q2_loss = q2_loss + q2_max_mag_loss.sum() + q2_min_mag_loss.sum()
+            elif q_regularizer == "c2f":
+                q1_reg = penalty * q1_val ** 2
+                q2_reg = penalty * q2_val ** 2
+                q1_loss = q1_loss + q1_reg.sum()
+                q2_loss = q2_loss + q2_reg.sum()
+            elif q_regularizer == "cql":
+                with torch.no_grad():
+                    pi_acts, _ = self.model.act_lprob(
+                        obss, h_states, clip=getattr(self.model, "_no_squash_act_clip", None))
+                    pi_acts = pi_acts.reshape(task_batch_size, self._action_dim).detach()
 
-            q1_loss = q1_loss + q1_max_mag_loss.sum() + q1_min_mag_loss.sum()
-            q2_loss = q2_loss + q2_max_mag_loss.sum() + q2_min_mag_loss.sum()
+                _, q1_pi, q2_pi, _ = self.model.q_vals(
+                    aug_data(data=obss, num_aug=self._num_tasks, aug_batch_size=task_batch_size),
+                    aug_data(data=h_states, num_aug=self._num_tasks, aug_batch_size=task_batch_size),
+                    pi_acts)
+                q1_reg = penalty * (-q1_val.sum() + q1_pi.sum())
+                q2_reg = penalty * (-q2_val.sum() + q2_pi.sum())
+                q1_loss = q1_loss + q1_reg
+                q2_loss = q2_loss + q2_reg
 
         return q1_loss, q2_loss
 

@@ -30,6 +30,7 @@ class SACDAC(SAC):
         self._expert_buffer_rate = self.algo_params.get(c.EXPERT_BUFFER_MODEL_SAMPLE_RATE, 0.)
         self._sample_horizon = algo_params.get(c.N_STEP, 1) + 1
         self._reward_model = self.algo_params.get(c.REWARD_MODEL, "discriminator")
+        self._threshold_disc = self.algo_params.get("threshold_discriminator", False)
         self._buffer_sample_batch_size = self._batch_size
         self._expert_end = 0
         self._expert_buffer_sampling = False
@@ -70,6 +71,66 @@ class SACDAC(SAC):
             # now batch sizes are bigger since we append equal amounts of expert data per task to buffer samples
             self._batch_size = self._batch_size * 2  # 1 for expert, 1 for non-expert
             self._num_samples_per_accum = self._batch_size // self._accum_num_grad
+
+        self._initialize_intrinsic_reward()
+
+    def _initialize_intrinsic_reward(self):
+        from torch.nn import init
+        import math
+ 
+        if getattr(self.algo_params, "rnd", False):
+            def intrinsic_reward(obs, act):
+                return 0.0
+            self.intrinsic_reward = intrinsic_reward
+            return
+        
+        class MlpEncoder(nn.Module):
+            def __init__(self, obs_dim, latent_dim, device):
+                super(MlpEncoder, self).__init__()
+                self.mlp = nn.Sequential(
+                    nn.Linear(obs_dim, 64), nn.ReLU(),
+                    nn.Linear(64, 64), nn.ReLU(),
+                    nn.Linear(64, latent_dim), nn.LayerNorm(latent_dim))
+
+                for p in self.modules():
+                    if isinstance(p, nn.Conv2d):
+                        init.orthogonal_(p.weight, math.sqrt(2))
+                        p.bias.data.zero_()
+
+                    if isinstance(p, nn.Linear):
+                        init.orthogonal_(p.weight, math.sqrt(2))
+                        p.bias.data.zero_()
+
+                self.to(device)
+
+            def forward(self, ob):
+                x = self.mlp(ob)
+
+                return x
+
+        self.rnd = MlpEncoder(self.model._obs_dim, 64, self.model.device)
+        self.target_rnd = MlpEncoder(self.model._obs_dim, 64, self.model.device)
+        for param in self.target_rnd.parameters():
+            param.requires_grad = False
+
+        self.rnd_opt = torch.optim.Adam(self.rnd.parameters(), 1e-4)
+
+        def intrinsic_reward(obs, act):
+            target_next_feature = self.target_rnd(obs).detach()
+            predict_next_feature = self.rnd(obs)
+            return ((target_next_feature - predict_next_feature) ** 2).sum(-1) / 2
+
+        self.intrinsic_reward = intrinsic_reward
+
+    def update_intrinsic_reward(self):
+        obss, _, acts, _, _, _, _ = self.buffer.sample(256)
+        loss = torch.mean(self.intrinsic_reward(obss, acts))
+
+        self.rnd_opt.zero_grad()
+        loss.backward()
+        self.rnd_opt.step()
+        return loss.item()
+
 
     def _compute_qs_loss(self, obss, h_states, acts, rews, dones, next_obss, discounting, lengths, update_info,
                          n_obss=None, n_h_states=None, n_discounts=None, discount_includes_gamma=False):
@@ -139,7 +200,12 @@ class SACDAC(SAC):
                 # keeping here even though it's set by param now, just in case there are floating point problems
                 weights[:self._expert_end] = 1 - discount[:self._expert_end]
             else:
-                target = rews + discount * (1 - dones) * v_next
+                # EMBER
+                if self._threshold_disc:
+                    threshold_rews = (torch.nn.functional.sigmoid(rews) > 0.5).float()
+                    target = threshold_rews + discount * (1 - dones) * threshold_rews * v_next
+                else:
+                    target = rews + discount * (1 - dones) * v_next
 
                 if self.algo_params.get(c.Q_EXPERT_TARGET_MODE, 'bootstrap') == 'max' and \
                         self.algo_params.get(c.SQIL_RCE_BOOTSTRAP_EXPERT_MODE, "no_boot") == "boot":
@@ -168,6 +234,7 @@ class SACDAC(SAC):
         if self.algo_params.get(c.Q_OVER_MAX_PENALTY, 0.0) > 0:
             penalty = self.algo_params[c.Q_OVER_MAX_PENALTY]
             num_med_filt = self.algo_params.get(c.QOMP_NUM_MED_FILT, 50)
+            q_regularizer = self.algo_params.get("q_regularizer", "vp")
 
             if self._reward_model == c.SQIL or self._reward_model == c.SPARSE:
                 q_max = self._reward_scaling * torch.ones_like(q1_val) / (1 - discount)
@@ -194,10 +261,11 @@ class SACDAC(SAC):
                 q_max = max_r_filtered * torch.ones_like(q1_val) / (1 - discount)
 
             else:
-                raise NotImplementedError(f"Q over max penalty not implemented for reward model {self._reward_model}")
+                if q_regularizer != "cql":
+                    raise NotImplementedError(f"Q over max penalty not implemented for reward model {self._reward_model}")
 
             # also set q max for policy to be even more restrictive, based on whatever the current q max for expert is
-            if self._expert_end > 0:
+            if self._reward_model != "rce" and self._expert_end > 0:
                 max_q = max_expert_q if self.algo_params.get(c.QOMP_POLICY_MAX_TYPE, 'max_exp') == 'max_exp' else avg_expert_q
                 if not hasattr(self, "_prev_q_maxs"):
                     self._prev_q_maxs = torch.ones(num_med_filt, device=self.device) * max_q
@@ -206,12 +274,24 @@ class SACDAC(SAC):
                 max_exp_q_filtered = self._prev_q_maxs.median(axis=0)[0]
                 q_max[self._expert_end:, :] = max_exp_q_filtered
 
-            q1_max_mag_loss = penalty * torch.maximum(q1_val - q_max, torch.tensor(0)) ** 2
-            q2_max_mag_loss = penalty * torch.maximum(q2_val - q_max, torch.tensor(0)) ** 2
-            q1_min_mag_loss = penalty * torch.maximum(-(q1_val - q_min), torch.tensor(0)) ** 2
-            q2_min_mag_loss = penalty * torch.maximum(-(q2_val - q_min), torch.tensor(0)) ** 2
-            q1_loss = q1_loss + q1_max_mag_loss.sum() + q1_min_mag_loss.sum()
-            q2_loss = q2_loss + q2_max_mag_loss.sum() + q2_min_mag_loss.sum()
+            if q_regularizer == "vp":
+                q1_max_mag_loss = penalty * torch.maximum(q1_val - q_max, torch.tensor(0)) ** 2
+                q2_max_mag_loss = penalty * torch.maximum(q2_val - q_max, torch.tensor(0)) ** 2
+                q1_min_mag_loss = penalty * torch.maximum(-(q1_val - q_min), torch.tensor(0)) ** 2
+                q2_min_mag_loss = penalty * torch.maximum(-(q2_val - q_min), torch.tensor(0)) ** 2
+                q1_loss = q1_loss + q1_max_mag_loss.sum() + q1_min_mag_loss.sum()
+                q2_loss = q2_loss + q2_max_mag_loss.sum() + q2_min_mag_loss.sum()
+            elif q_regularizer == "c2f":
+                q1_reg = penalty * q1_val ** 2
+                q2_reg = penalty * q2_val ** 2
+                q1_loss = q1_loss + q1_reg.sum()
+                q2_loss = q2_loss + q2_reg.sum()
+            elif q_regularizer == "cql":
+                q1_pi, q2_pi = self._q_pi(obss, h_states)
+                q1_reg = penalty * (-q1_val.sum() + q1_pi.sum())
+                q2_reg = penalty * (-q2_val.sum() + q2_pi.sum())
+                q1_loss = q1_loss + q1_reg
+                q2_loss = q2_loss + q2_reg
 
         if self.algo_params.get(c.NOISE_ZERO_TARGET_MODE, 'none') != 'none':
             obs_min = self.buffer.observations.min(axis=0)[0]
@@ -303,6 +383,11 @@ class SACDAC(SAC):
         self.step += 1
 
         update_info = {}
+
+        # Perform RND
+        if hasattr(self, "intrinsic_reward") and self.step >= self._buffer_warmup:
+            rnd_loss = self.update_intrinsic_reward()
+            update_info["rnd_loss"] = rnd_loss
 
         # Perform SAC update
         if self.step >= self._buffer_warmup and self.step % self._steps_between_update == 0:
@@ -600,6 +685,12 @@ class SACDAC(SAC):
 
                         rews[start:end] = 1.0
                         rews[end:] = self.algo_params.get(c.SQIL_POLICY_REWARD_LABEL, 0.0)
+
+                        if hasattr(self, "intrinsic_reward"):
+                            idxes = lengths.unsqueeze(-1).repeat(1, *obss.shape[2:]).unsqueeze(1)
+                            last_obss = torch.gather(obss, axis=1, index=idxes - 1)[:, 0, :]
+                            intrinsic_rew = self.intrinsic_reward(last_obss, acts).detach()
+                            rews += 0.5 * intrinsic_rew[:, None]
 
                     elif self._reward_model == c.SPARSE:
                         # only going to label non-successful rewards as same as what we would for sqil

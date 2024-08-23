@@ -87,7 +87,7 @@ class SAC:
         self.policy_opt.load_state_dict(state_dict[c.POLICY_OPTIMIZER])
         self.qs_opt.load_state_dict(state_dict[c.QS_OPTIMIZER])
         self.alpha_opt.load_state_dict(state_dict[c.ALPHA_OPTIMIZER])
-        self.step = state_dict[c.STEP]
+        self.step = state_dict.get(c.STEP, self.step)  # get adds backwards compatibility
         if hasattr(self.model, c.OBS_RMS) and c.OBS_RMS in state_dict:
             self.model.obs_rms = state_dict[c.OBS_RMS]
         if hasattr(self.model, c.VALUE_RMS) and c.VALUE_RMS in state_dict:

@@ -123,7 +123,8 @@ def train_lfgp_sac(experiment_config, return_agent_only=False, no_expert_buffers
     if load_model:
         state_dict = torch.load(load_model, map_location=experiment_config[c.DEVICE])
         learning_algorithm.load_state_dict(state_dict)
-        set_rng_state(state_dict[c.TORCH_RNG_STATE], state_dict[c.NP_RNG_STATE])
+        if c.TORCH_RNG_STATE in state_dict and c.NP_RNG_STATE in state_dict:  # backwards compatibility
+            set_rng_state(state_dict[c.TORCH_RNG_STATE], state_dict[c.NP_RNG_STATE])
 
     agent = SACXAgent(scheduler=scheduler,
                       intentions=intentions,
